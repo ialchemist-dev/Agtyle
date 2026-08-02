@@ -5,7 +5,7 @@
 ## Getting started
 
 ```bash
-git clone https://github.com/JunjieYu95/Agyle.git
+git clone https://github.com/ialchemist-dev/Agyle.git
 cd Agyle
 ```
 
