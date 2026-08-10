@@ -57,7 +57,9 @@ migrate-check: ## Prove migrations are reversible on a throwaway database
 
 verify: lint typecheck migrate-check ## Full deterministic gate
 	$(RUN) agtyle validate
-	$(RUN) pytest tests --cov=agtyle --cov-branch --cov-report=term-missing
+	$(RUN) pytest tests --cov=agtyle --cov-branch --cov-report=term-missing \
+		--cov-report=json:artifacts/verification/coverage.json
+	$(PY) scripts/check_coverage.py
 	$(PY) scripts/generate_report.py
 
 demo-reminder: ## Live local multi-process reminder proof

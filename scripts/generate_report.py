@@ -147,6 +147,124 @@ async def collect_policy_cases() -> tuple[list[dict[str, str]], str | None]:
     return results, version
 
 
+PERFORMANCE_TARGETS_MS = {
+    "interaction_receipt_p95_ms": 250.0,
+    "task_claim_p95_ms": 100.0,
+    "cedar_decision_p95_ms": 250.0,
+    "due_detection_p95_ms": 250.0,
+}
+
+
+def percentile(values: list[float], fraction: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = min(round(fraction * (len(ordered) - 1)), len(ordered) - 1)
+    return ordered[index]
+
+
+async def collect_performance(samples: int = 12) -> dict[str, Any]:
+    """Measure the sanity targets in §25.3 on this machine, without any LLM in the path.
+
+    These are sanity checks, not real-time guarantees. The report records the observed values
+    and flags anything above twice its target so a regression is visible rather than assumed.
+    """
+    import tempfile
+
+    from agtyle.adapters.notifications.recording import RecordingNotificationAdapter
+    from agtyle.application.interaction_service import HandleInteraction
+    from agtyle.bootstrap import build_container, migrate
+    from agtyle.config import Settings
+
+    measurements: dict[str, list[float]] = {
+        "interaction_receipt_p95_ms": [],
+        "task_claim_p95_ms": [],
+        "cedar_decision_p95_ms": [],
+        "due_detection_p95_ms": [],
+    }
+
+    with tempfile.TemporaryDirectory(prefix="agtyle-perf-") as workspace:
+        directory = Path(workspace)
+        settings = Settings(
+            env="test",
+            data_dir=directory,
+            database_url=f"sqlite:///{directory / 'perf.db'}",
+            contracts_dir=REPO_ROOT / "contracts",
+            agents_dir=REPO_ROOT / "agents",
+            cedar_binary=REPO_ROOT / ".tools" / "cedar" / "4.12.0" / "cedar",
+            cedar_schema=REPO_ROOT / "policies" / "cedar" / "agtyle.cedarschema",
+            cedar_policies=REPO_ROOT / "policies" / "cedar" / "base.cedar",
+            notification_adapter="recording",
+        )
+        migrate(settings)
+        container = build_container(
+            settings,
+            notification_adapters={"recording": RecordingNotificationAdapter()},
+            configure_logs=False,
+        )
+        try:
+            for index in range(samples):
+                started = time.perf_counter()
+                await container.interaction_service.handle(
+                    HandleInteraction(
+                        user_id="user_local",
+                        conversation_id="conv_perf",
+                        channel="api",
+                        input="Remind me to measure latency at 2099-01-01T00:00:00Z",
+                        idempotency_key=f"perf-{index}",
+                    )
+                )
+                measurements["interaction_receipt_p95_ms"].append(
+                    (time.perf_counter() - started) * 1000
+                )
+
+                started = time.perf_counter()
+                claimed = await container.execution_service.claim_task(owner=f"perf-{index}")
+                measurements["task_claim_p95_ms"].append((time.perf_counter() - started) * 1000)
+                if claimed is not None:
+                    await container.execution_service.execute_claimed_task(
+                        claimed, owner=f"perf-{index}"
+                    )
+
+                started = time.perf_counter()
+                await container.reminder_service.claim_due()
+                measurements["due_detection_p95_ms"].append((time.perf_counter() - started) * 1000)
+
+            from agtyle.ports.authorization import AuthorizationRequest
+
+            probe = AuthorizationRequest(
+                principal_type="Agent",
+                principal_id="steward",
+                action_id="reminder.create",
+                resource_type="ReminderCollection",
+                resource_id="user_local",
+                context={
+                    "origin_user_id": "user_local",
+                    "has_direct_user_instruction": True,
+                    "payload_hash": "sha256:" + "0" * 64,
+                    "approval_present": False,
+                    "approval_valid": False,
+                },
+            )
+            for _ in range(samples):
+                started = time.perf_counter()
+                await container.authorization.authorize(probe)
+                measurements["cedar_decision_p95_ms"].append((time.perf_counter() - started) * 1000)
+        finally:
+            container.dispose()
+
+    observed = {name: round(percentile(values, 0.95), 2) for name, values in measurements.items()}
+    regressions = [
+        name for name, value in observed.items() if value > 2 * PERFORMANCE_TARGETS_MS[name]
+    ]
+    return {
+        "targets_ms": PERFORMANCE_TARGETS_MS,
+        "observed_p95_ms": observed,
+        "regressions": regressions,
+        "samples": samples,
+    }
+
+
 def render_markdown(report: dict[str, Any]) -> str:
     status = "PASSED" if not report["unmet_requirements"] else "INCOMPLETE"
     lines = [
@@ -213,6 +331,23 @@ def render_markdown(report: dict[str, Any]) -> str:
             "",
             f"Restart duplicate check: **{report['restart_duplicate_check']}**.",
         ]
+
+    performance = report.get("performance")
+    if performance:
+        lines += [
+            "",
+            "## Performance sanity",
+            "",
+            "Observed on this machine, without an LLM in the path. These are sanity checks, not",
+            "real-time guarantees; a value above twice its target is flagged as a regression.",
+            "",
+            "| Measurement | Target p95 | Observed p95 | |",
+            "|---|---:|---:|---|",
+        ]
+        for name, target in sorted(performance["targets_ms"].items()):
+            observed = performance["observed_p95_ms"].get(name, 0.0)
+            mark = "REGRESSION" if name in performance["regressions"] else "ok"
+            lines.append(f"| {name} | {target:.0f} ms | {observed:.2f} ms | {mark} |")
 
     lines += ["", "## Unmet requirements", ""]
     if report["unmet_requirements"]:
@@ -294,6 +429,10 @@ def main(argv: list[str] | None = None) -> int:
     else:
         unmet.append("no end-to-end proof artifact was produced")
 
+    performance = asyncio.run(collect_performance())
+    for regression in performance["regressions"]:
+        unmet.append(f"performance regression: {regression} exceeded twice its target")
+
     settings = Settings(env="test")
     report: dict[str, Any] = {
         "schema_version": 1,
@@ -309,7 +448,7 @@ def main(argv: list[str] | None = None) -> int:
         "tests": tests,
         "policy_cases": policy_cases,
         "e2e": e2e,
-        "performance": None,
+        "performance": performance,
         "restart_duplicate_check": restart_check,
         "unmet_requirements": unmet,
     }
