@@ -1,0 +1,18 @@
+# The Steward Agent owns personal scheduling. It may request reminder.create and nothing else.
+id: steward
+version: 1
+display_name: Steward Agent
+accepts:
+  - reminder_create
+produces:
+  - reminder_action_request
+capabilities:
+  requested:
+    - reminder.create
+context_scopes:
+  - timezone
+  - reminder_preferences
+authority:
+  external_publish: forbidden
+escalation:
+  ambiguity: when_outcome_changes

@@ -18,7 +18,7 @@ in this log's work packages establish the first baseline.
 - [x] WP-00 Repository foundation
 - [x] WP-01 Contracts and domain state
 - [x] WP-02 Persistence and migrations
-- [ ] WP-03 Agent and capability registry
+- [x] WP-03 Agent and capability registry
 - [ ] WP-04 Cedar authorization
 - [ ] WP-05 Interaction, dispatch and Task Worker
 - [ ] WP-06 Reminder Action vertical slice
@@ -142,3 +142,27 @@ column stores `'12.5'` rather than failing. The storage-class test therefore use
 TEXT and a non-numeric string into INTEGER, which STRICT does reject. Worth knowing: STRICT
 prevents type confusion, it does not prevent lossless coercion.
 *Affected requirement:* §19.4.
+
+---
+
+## 2026-08-09 — WP-03 Agent and capability registry
+
+**D-016 — An Agent's directory name must equal its manifest id.**
+§12.1 requires startup to reject duplicate Agent id/version pairs. Binding the directory name to
+the id makes a duplicate structurally impossible rather than merely detected, and it means the
+filesystem layout is itself part of the checked contract. The registry test asserts the failure
+mode explicitly.
+*Affected requirement:* §12.1.
+
+**D-017 — Accepted and produced types are drawn from a closed kernel-owned set.**
+`REGISTERED_ASSIGNMENT_TYPES` and `REGISTERED_OUTPUT_TYPES` in `adapters/registry.py` list what
+the kernel can actually route. A manifest naming anything else fails startup, which is what
+"an accepted or produced type that is unregistered" means in §12.1. Adding a slice means adding
+its types here deliberately.
+*Affected requirement:* §12.1.
+
+**D-018 — ContextPack filtering is allow-list by declared scope.**
+`SCOPE_PREFERENCES` maps each declared `context_scopes` entry to the exact preference keys it
+unlocks; everything else is dropped, and credential-shaped keys are dropped even if a scope
+would have admitted them. A deny-list would silently leak the next preference key someone adds.
+*Affected requirement:* §9.2 of the architecture, §12.1.
