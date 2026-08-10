@@ -35,6 +35,7 @@ from agtyle.application.interaction_service import InteractionService
 from agtyle.application.notification_service import NotificationService
 from agtyle.application.policy_service import PolicyService
 from agtyle.application.recovery_service import RecoveryService
+from agtyle.application.registry_sync import RegistrySyncService
 from agtyle.application.reminder_service import ReminderService
 from agtyle.application.retry_policy import RetryPolicy
 from agtyle.application.timeline import TimelineService
@@ -80,6 +81,7 @@ class Container:
     recovery_service: RecoveryService
     timeline_service: TimelineService
     approval_service: ApprovalService
+    registry_sync: RegistrySyncService
     knowledge: KnowledgePort
     secrets: SecretStorePort
     workflows: WorkflowEnginePort
@@ -202,6 +204,15 @@ def build_container(
     approval_service = ApprovalService(
         uow_factory=uow_factory, clock=resolved_clock, ids=resolved_ids
     )
+    registry_sync = RegistrySyncService(
+        uow_factory=uow_factory,
+        registry=registry,
+        manifest_hashes={
+            (agent.id, agent.version): agent.manifest_hash for agent in registry.agents
+        },
+        capabilities=registry.capabilities,
+        clock=resolved_clock,
+    )
     recovery_service = RecoveryService(
         uow_factory=uow_factory,
         clock=resolved_clock,
@@ -229,6 +240,7 @@ def build_container(
         recovery_service=recovery_service,
         timeline_service=timeline_service,
         approval_service=approval_service,
+        registry_sync=registry_sync,
         # Required seams with no production adapter in this baseline. They fail loudly rather
         # than quietly succeeding if the reminder path ever grows a dependency on them.
         knowledge=NotImplementedKnowledgeAdapter(),

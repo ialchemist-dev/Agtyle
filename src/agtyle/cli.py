@@ -34,9 +34,13 @@ app = typer.Typer(
 task_app = typer.Typer(help="Inspect Tasks.", no_args_is_help=True)
 reminder_app = typer.Typer(help="Inspect Reminders.", no_args_is_help=True)
 demo_app = typer.Typer(help="Run local demonstrations.", no_args_is_help=True)
+registry_app = typer.Typer(
+    help="Inspect and synchronize the registry snapshot.", no_args_is_help=True
+)
 app.add_typer(task_app, name="task")
 app.add_typer(reminder_app, name="reminder")
 app.add_typer(demo_app, name="demo")
+app.add_typer(registry_app, name="registry")
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -64,12 +68,24 @@ def load_settings(data_dir: Path | None = None, database_url: str | None = None)
     return settings
 
 
-def open_container(settings: Settings | None = None) -> Container:
+def open_container(settings: Settings | None = None, *, check_registry: bool = True) -> Container:
+    """Build the container and, for anything that will execute work, gate on the snapshot.
+
+    A manifest edited without an explicit `agtyle registry sync` changes what an Agent may
+    propose. That must stop the process, not be discovered later in an audit.
+    """
     try:
-        return build_container(settings or load_settings())
+        container = build_container(settings or load_settings())
     except AgtyleError as error:
         fail(error)
         raise  # pragma: no cover - fail always exits
+    if check_registry:
+        try:
+            asyncio.run(container.registry_sync.require_consistent())
+        except AgtyleError as error:
+            container.dispose()
+            fail(error)
+    return container
 
 
 @app.callback(invoke_without_command=True)
@@ -99,8 +115,9 @@ def init() -> None:
     settings = load_settings()
     settings.ensure_directories()
     head = migrate(settings)
-    container = open_container(settings)
+    container = open_container(settings, check_registry=False)
     try:
+        sync = asyncio.run(container.registry_sync.sync())
         report = asyncio.run(container.authorization.validate_policy_set())
         if not report.valid:
             fail(
@@ -118,6 +135,7 @@ def init() -> None:
                 "capabilities": [item.name for item in container.registry.capabilities],
                 "cedar_version": report.engine_version,
                 "policy_ids": report.policy_ids,
+                "registry_snapshot": sync.model_dump(mode="json"),
             }
         )
     finally:
@@ -126,10 +144,11 @@ def init() -> None:
 
 @app.command()
 def validate() -> None:
-    """Validate configuration, registry, schemas and Cedar without touching the database."""
+    """Validate configuration, registry, schemas, Cedar and the stored registry snapshot."""
     settings = load_settings()
-    container = open_container(settings)
+    container = open_container(settings, check_registry=False)
     try:
+        consistency = asyncio.run(container.registry_sync.check())
         report = asyncio.run(container.authorization.validate_policy_set())
         document = {
             "status": "valid" if report.valid else "invalid",
@@ -142,9 +161,14 @@ def validate() -> None:
             "cedar_valid": report.valid,
             "policy_ids": report.policy_ids,
             "errors": report.errors,
+            "registry_snapshot_synced": consistency.synced,
+            "registry_snapshot_consistent": consistency.consistent,
+            "registry_disagreements": [
+                item.model_dump(mode="json") for item in consistency.disagreements
+            ],
         }
         emit(document)
-        if not report.valid:
+        if not report.valid or not consistency.consistent:
             raise typer.Exit(EXIT_ERROR)
     finally:
         container.dispose()
@@ -315,6 +339,29 @@ def reminder_show(reminder_id: str) -> None:
         if document is None:
             fail(AgtyleError(f"no reminder with id {reminder_id}"))
         emit(document)
+    finally:
+        container.dispose()
+
+
+@registry_app.command("sync")
+def registry_sync() -> None:
+    """Record the current Agent and Capability registry as the enabled snapshot."""
+    container = open_container(check_registry=False)
+    try:
+        emit(asyncio.run(container.registry_sync.sync()).model_dump(mode="json"))
+    finally:
+        container.dispose()
+
+
+@registry_app.command("check")
+def registry_check() -> None:
+    """Report whether the stored snapshot still agrees with the configured registry."""
+    container = open_container(check_registry=False)
+    try:
+        consistency = asyncio.run(container.registry_sync.check())
+        emit(consistency.model_dump(mode="json"))
+        if not consistency.consistent:
+            raise typer.Exit(EXIT_ERROR)
     finally:
         container.dispose()
 

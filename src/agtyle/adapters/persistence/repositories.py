@@ -36,6 +36,7 @@ from agtyle.domain.notifications import (
     Notification,
     NotificationDestination,
 )
+from agtyle.domain.registry_snapshot import AgentSnapshot, CapabilitySnapshot
 from agtyle.domain.reminders import Reminder, ReminderStatus
 from agtyle.domain.tasks import Task, TaskOrigin, TaskStatus
 from agtyle.ports.repositories import ConcurrentUpdateError
@@ -1004,3 +1005,131 @@ class SqlEventRepository(_Base):
         return int(
             self._connection.execute(select(func.count()).select_from(models.events)).scalar_one()
         )
+
+
+# --------------------------------------------------------------------------------------
+# Registry snapshots
+# --------------------------------------------------------------------------------------
+
+
+def _agent_snapshot_from_row(row: Row[Any]) -> AgentSnapshot:
+    return AgentSnapshot(
+        agent_id=row.agent_id,
+        version=row.version,
+        manifest_hash=row.manifest_hash,
+        enabled=bool(row.enabled),
+        registered_at=from_storage(row.registered_at),
+    )
+
+
+def _capability_snapshot_from_row(row: Row[Any]) -> CapabilitySnapshot:
+    return CapabilitySnapshot(
+        name=row.name,
+        version=row.version,
+        action_schema_id=row.action_schema_id,
+        adapter_name=row.adapter_name,
+        enabled=bool(row.enabled),
+        registered_at=from_storage(row.registered_at),
+    )
+
+
+class SqlRegistryRepository(_Base):
+    """Snapshot storage. The filesystem manifests remain the configured source of truth."""
+
+    async def list_agents(self) -> list[AgentSnapshot]:
+        rows = self._fetch_all(
+            select(models.agents).order_by(models.agents.c.agent_id, models.agents.c.version)
+        )
+        return [_agent_snapshot_from_row(row) for row in rows]
+
+    async def list_capabilities(self) -> list[CapabilitySnapshot]:
+        rows = self._fetch_all(
+            select(models.capabilities).order_by(
+                models.capabilities.c.name, models.capabilities.c.version
+            )
+        )
+        return [_capability_snapshot_from_row(row) for row in rows]
+
+    async def upsert_agent(self, snapshot: AgentSnapshot) -> None:
+        values = {
+            "manifest_hash": snapshot.manifest_hash,
+            "enabled": int(snapshot.enabled),
+            "registered_at": to_storage(snapshot.registered_at),
+        }
+        result = self._connection.execute(
+            update(models.agents)
+            .where(
+                models.agents.c.agent_id == snapshot.agent_id,
+                models.agents.c.version == snapshot.version,
+            )
+            .values(**values)
+        )
+        if result.rowcount == 0:
+            self._insert(
+                models.agents,
+                {
+                    "agent_id": snapshot.agent_id,
+                    "version": snapshot.version,
+                    "created_at": to_storage(snapshot.registered_at),
+                    **values,
+                },
+            )
+
+    async def upsert_capability(self, snapshot: CapabilitySnapshot) -> None:
+        values = {
+            "action_schema_id": snapshot.action_schema_id,
+            "adapter_name": snapshot.adapter_name,
+            "enabled": int(snapshot.enabled),
+            "registered_at": to_storage(snapshot.registered_at),
+        }
+        result = self._connection.execute(
+            update(models.capabilities)
+            .where(
+                models.capabilities.c.name == snapshot.name,
+                models.capabilities.c.version == snapshot.version,
+            )
+            .values(**values)
+        )
+        if result.rowcount == 0:
+            self._insert(
+                models.capabilities,
+                {
+                    "name": snapshot.name,
+                    "version": snapshot.version,
+                    "created_at": to_storage(snapshot.registered_at),
+                    **values,
+                },
+            )
+
+    async def disable_missing_agents(self, keep: list[tuple[str, int]]) -> int:
+        """Disable rather than delete: a removed Agent still explains historical AgentRuns."""
+        disabled = 0
+        for snapshot in await self.list_agents():
+            if not snapshot.enabled or (snapshot.agent_id, snapshot.version) in keep:
+                continue
+            self._connection.execute(
+                update(models.agents)
+                .where(
+                    models.agents.c.agent_id == snapshot.agent_id,
+                    models.agents.c.version == snapshot.version,
+                )
+                .values(enabled=0)
+            )
+            disabled += 1
+        return disabled
+
+    async def disable_missing_capabilities(self, keep: list[tuple[str, int]]) -> int:
+        disabled = 0
+        for snapshot in await self.list_capabilities():
+            if not snapshot.enabled or (snapshot.name, snapshot.version) in keep:
+                continue
+            self._connection.execute(
+                update(models.capabilities)
+                .where(
+                    models.capabilities.c.name == snapshot.name,
+                    models.capabilities.c.version == snapshot.version,
+                )
+                .values(enabled=0)
+            )
+            disabled += 1
+        return disabled

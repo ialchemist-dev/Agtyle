@@ -68,6 +68,21 @@ The timeline is assembled from the Task plus Events, AgentRuns, ActionRequests, 
 ActionResults, Reminders and Notifications. Current state comes from the Task; everything under
 `history` is a record of something that already happened.
 
+## Changing an Agent manifest
+
+A manifest declares which Capabilities an Agent may even propose, so editing one changes the
+system's authority surface. The database keeps a snapshot of the registry, and startup compares
+against it:
+
+```bash
+agtyle registry check   # does the stored snapshot still agree with the configured registry?
+agtyle registry sync    # record the current registry as the enabled snapshot
+```
+
+If a manifest changes without a sync, every role refuses to start with `AGT-SYSTEM-001` naming
+the Agent and both hashes. `agtyle init` syncs as part of initialization. Old snapshot rows are
+disabled, never deleted, so a removed Agent can still explain the AgentRuns it produced.
+
 ## Configuration
 
 Precedence: explicit CLI flags, then `AGTYLE_` environment variables, then `.env` (development

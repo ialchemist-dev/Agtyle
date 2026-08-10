@@ -191,7 +191,13 @@ def _load_agent(directory: Path, *, schemas: JsonSchemaRegistry) -> RegisteredAg
                 f"agent {directory.name} is missing required file {filename}"
             )
 
-    raw = yaml.safe_load((directory / "manifest.yaml").read_text(encoding="utf-8"))
+    try:
+        raw = yaml.safe_load((directory / "manifest.yaml").read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        # A malformed manifest is a configuration error, not an unhandled parser exception.
+        raise ConfigurationInvalidError(
+            f"agent {directory.name} manifest is not valid YAML: {exc}"
+        ) from exc
     if not isinstance(raw, dict):
         raise ConfigurationInvalidError(f"agent {directory.name} manifest must be a mapping")
 

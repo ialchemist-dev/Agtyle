@@ -296,3 +296,33 @@ The report generator measures the §25.3 targets on the machine running it and f
 above twice its target. Observed p95 on an Apple M-series machine: interaction receipt 0.70 ms,
 task claim 0.55 ms, Cedar decision 7.94 ms, due detection 0.18 ms.
 *Affected requirement:* §25.3.
+
+---
+
+## 2026-08-10 — Registry snapshot gate (§10.6)
+
+**D-035 — The registry snapshot MUST from §10.6 was initially missed and is now implemented.**
+The `agents` and `capabilities` tables were created by the initial migration but nothing wrote
+to them and nothing compared against them, so the sentence "Startup MUST fail when an enabled
+database snapshot disagrees with the current manifest hash until an explicit registry-sync
+command records the new version" was unmet. Recording it here because it was a genuine gap, not
+a deviation.
+
+`RegistrySyncService` now provides `check`, `require_consistent` and `sync`;
+`agtyle registry check` and `agtyle registry sync` expose them; `agtyle init` syncs as part of
+initialization; and `open_container` gates every role that will execute work. An empty snapshot
+is deliberately *not* a disagreement — a fresh database has simply never been synced — while a
+changed manifest hash, a removed Agent, or a changed capability registration all stop startup
+with `AGT-SYSTEM-001` naming the subject and both hashes. Readiness reports the same state.
+
+Snapshots are disabled rather than deleted, because a removed Agent still has to explain the
+AgentRuns it produced. Verified by hand as well as by test: editing `display_name` in the
+Steward manifest makes `agtyle worker --once` refuse to start, and `agtyle registry sync`
+unblocks it.
+*Affected requirement:* §10.6.
+
+**D-036 — A malformed manifest is now a typed configuration error.**
+Found while testing the gate: a manifest with invalid YAML escaped as a raw `yaml.YAMLError`
+traceback instead of `AGT-SYSTEM-001`. `_load_agent` now converts parser failures, so every
+registry failure mode reaches the operator through the same error taxonomy.
+*Affected requirement:* §11.2, §12.1.

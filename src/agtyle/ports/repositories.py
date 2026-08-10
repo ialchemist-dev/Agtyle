@@ -17,6 +17,7 @@ from agtyle.domain.artifacts import Artifact
 from agtyle.domain.events import Event
 from agtyle.domain.intents import Intent
 from agtyle.domain.notifications import Notification
+from agtyle.domain.registry_snapshot import AgentSnapshot, CapabilitySnapshot
 from agtyle.domain.reminders import Reminder
 from agtyle.domain.tasks import Task
 
@@ -123,6 +124,18 @@ class NotificationRepository(Protocol):
 
 
 @runtime_checkable
+class RegistryRepository(Protocol):
+    """Durable snapshots of the Agent and Capability registry, for audit and startup comparison."""
+
+    async def list_agents(self) -> list[AgentSnapshot]: ...
+    async def list_capabilities(self) -> list[CapabilitySnapshot]: ...
+    async def upsert_agent(self, snapshot: AgentSnapshot) -> None: ...
+    async def upsert_capability(self, snapshot: CapabilitySnapshot) -> None: ...
+    async def disable_missing_agents(self, keep: list[tuple[str, int]]) -> int: ...
+    async def disable_missing_capabilities(self, keep: list[tuple[str, int]]) -> int: ...
+
+
+@runtime_checkable
 class EventRepository(Protocol):
     """Append and query only. Mutation is rejected here and by database triggers."""
 
@@ -144,6 +157,7 @@ class UnitOfWorkPort(Protocol):
     reminders: ReminderRepository
     notifications: NotificationRepository
     events: EventRepository
+    registry: RegistryRepository
 
     async def __aenter__(self) -> Self: ...
     async def __aexit__(

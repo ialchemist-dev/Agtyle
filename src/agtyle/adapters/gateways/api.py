@@ -163,6 +163,14 @@ def create_app(settings: Settings | None = None, *, container: Container | None 
         checks["registry_agents"] = [agent.id for agent in container.registry.agents]
         checks["capabilities"] = [item.name for item in container.registry.capabilities]
 
+        consistency = await container.registry_sync.check()
+        checks["registry_snapshot_synced"] = consistency.synced
+        checks["registry_snapshot_consistent"] = consistency.consistent
+        if not consistency.consistent:
+            checks["registry_disagreements"] = [
+                item.model_dump(mode="json") for item in consistency.disagreements
+            ]
+
         report = await container.authorization.validate_policy_set()
         checks["cedar_binary_present"] = container.authorization.configuration_problem() is None
         checks["cedar_version"] = report.engine_version
@@ -175,6 +183,7 @@ def create_app(settings: Settings | None = None, *, container: Container | None 
             and checks["cedar_binary_present"]
             and checks["cedar_policies_valid"]
             and checks["registry_agents"]
+            and checks["registry_snapshot_consistent"]
         )
         response.status_code = (
             status.HTTP_200_OK if healthy else status.HTTP_503_SERVICE_UNAVAILABLE

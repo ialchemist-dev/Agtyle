@@ -19,6 +19,7 @@ from agtyle.adapters.persistence.repositories import (
     SqlEventRepository,
     SqlIntentRepository,
     SqlNotificationRepository,
+    SqlRegistryRepository,
     SqlReminderRepository,
     SqlTaskRepository,
 )
@@ -29,6 +30,7 @@ from agtyle.ports.repositories import (
     EventRepository,
     IntentRepository,
     NotificationRepository,
+    RegistryRepository,
     ReminderRepository,
     TaskRepository,
     UnitOfWorkPort,
@@ -47,6 +49,7 @@ class SqliteUnitOfWork:
     reminders: ReminderRepository
     notifications: NotificationRepository
     events: EventRepository
+    registry: RegistryRepository
 
     def __init__(self, engine: Engine, *, immediate: bool = True) -> None:
         self._engine = engine
@@ -71,6 +74,7 @@ class SqliteUnitOfWork:
         self.reminders = SqlReminderRepository(connection)
         self.notifications = SqlNotificationRepository(connection)
         self.events = SqlEventRepository(connection)
+        self.registry = SqlRegistryRepository(connection)
         return self
 
     async def __aexit__(
