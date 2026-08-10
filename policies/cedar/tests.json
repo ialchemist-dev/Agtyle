@@ -1,0 +1,526 @@
+[
+  {
+    "name": "P01 steward creates a reminder in its own user's collection with a direct instruction",
+    "agtyle": {
+      "id": "P01",
+      "expected_outcome": "allow",
+      "cedar_evaluable": true,
+      "description": "Steward + reminder.create + direct instruction + same user scope"
+    },
+    "request": {
+      "principal": "Agtyle::Agent::\"steward\"",
+      "action": "Agtyle::Action::\"reminder.create\"",
+      "resource": "Agtyle::ReminderCollection::\"user_local\"",
+      "context": {
+        "origin_user_id": "user_local",
+        "has_direct_user_instruction": true,
+        "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "approval_present": false,
+        "approval_valid": false
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "Agtyle::Agent",
+          "id": "steward"
+        },
+        "attrs": {},
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::ReminderCollection",
+          "id": "user_local"
+        },
+        "attrs": {
+          "owner": "user_local"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::User",
+          "id": "user_local"
+        },
+        "attrs": {},
+        "parents": []
+      }
+    ],
+    "decision": "allow",
+    "reason": [
+      "permit-steward-direct-reminder"
+    ],
+    "num_errors": 0
+  },
+  {
+    "name": "P02 steward is denied without a direct user instruction",
+    "agtyle": {
+      "id": "P02",
+      "expected_outcome": "deny",
+      "cedar_evaluable": true,
+      "description": "An Agent may not create reminders the user never asked for"
+    },
+    "request": {
+      "principal": "Agtyle::Agent::\"steward\"",
+      "action": "Agtyle::Action::\"reminder.create\"",
+      "resource": "Agtyle::ReminderCollection::\"user_local\"",
+      "context": {
+        "origin_user_id": "user_local",
+        "has_direct_user_instruction": false,
+        "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "approval_present": false,
+        "approval_valid": false
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "Agtyle::Agent",
+          "id": "steward"
+        },
+        "attrs": {},
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::ReminderCollection",
+          "id": "user_local"
+        },
+        "attrs": {
+          "owner": "user_local"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::User",
+          "id": "user_local"
+        },
+        "attrs": {},
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [],
+    "num_errors": 0
+  },
+  {
+    "name": "P03 steward is denied a collection belonging to another user",
+    "agtyle": {
+      "id": "P03",
+      "expected_outcome": "deny",
+      "cedar_evaluable": true,
+      "description": "Same-user scope is enforced by policy, not by the caller"
+    },
+    "request": {
+      "principal": "Agtyle::Agent::\"steward\"",
+      "action": "Agtyle::Action::\"reminder.create\"",
+      "resource": "Agtyle::ReminderCollection::\"user_other\"",
+      "context": {
+        "origin_user_id": "user_local",
+        "has_direct_user_instruction": true,
+        "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "approval_present": false,
+        "approval_valid": false
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "Agtyle::Agent",
+          "id": "steward"
+        },
+        "attrs": {},
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::ReminderCollection",
+          "id": "user_other"
+        },
+        "attrs": {
+          "owner": "user_other"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::User",
+          "id": "user_local"
+        },
+        "attrs": {},
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [],
+    "num_errors": 0
+  },
+  {
+    "name": "P04 the research agent is denied reminder.create",
+    "agtyle": {
+      "id": "P04",
+      "expected_outcome": "deny",
+      "cedar_evaluable": true,
+      "description": "Only the Steward may create reminders"
+    },
+    "request": {
+      "principal": "Agtyle::Agent::\"research\"",
+      "action": "Agtyle::Action::\"reminder.create\"",
+      "resource": "Agtyle::ReminderCollection::\"user_local\"",
+      "context": {
+        "origin_user_id": "user_local",
+        "has_direct_user_instruction": true,
+        "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "approval_present": false,
+        "approval_valid": false
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "Agtyle::Agent",
+          "id": "research"
+        },
+        "attrs": {},
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::ReminderCollection",
+          "id": "user_local"
+        },
+        "attrs": {
+          "owner": "user_local"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::User",
+          "id": "user_local"
+        },
+        "attrs": {},
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [],
+    "num_errors": 0
+  },
+  {
+    "name": "P05 the executive agent is denied reminder.create",
+    "agtyle": {
+      "id": "P05",
+      "expected_outcome": "deny",
+      "cedar_evaluable": true,
+      "description": "The Executive routes work; it never performs an Action"
+    },
+    "request": {
+      "principal": "Agtyle::Agent::\"executive\"",
+      "action": "Agtyle::Action::\"reminder.create\"",
+      "resource": "Agtyle::ReminderCollection::\"user_local\"",
+      "context": {
+        "origin_user_id": "user_local",
+        "has_direct_user_instruction": true,
+        "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "approval_present": false,
+        "approval_valid": false
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "Agtyle::Agent",
+          "id": "executive"
+        },
+        "attrs": {},
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::ReminderCollection",
+          "id": "user_local"
+        },
+        "attrs": {
+          "owner": "user_local"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::User",
+          "id": "user_local"
+        },
+        "attrs": {},
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [],
+    "num_errors": 0
+  },
+  {
+    "name": "P06 an unknown agent is denied reminder.create",
+    "agtyle": {
+      "id": "P06",
+      "expected_outcome": "deny",
+      "cedar_evaluable": true,
+      "description": "Deny by default: an unregistered principal matches no permit"
+    },
+    "request": {
+      "principal": "Agtyle::Agent::\"ghost\"",
+      "action": "Agtyle::Action::\"reminder.create\"",
+      "resource": "Agtyle::ReminderCollection::\"user_local\"",
+      "context": {
+        "origin_user_id": "user_local",
+        "has_direct_user_instruction": true,
+        "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "approval_present": false,
+        "approval_valid": false
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "Agtyle::Agent",
+          "id": "ghost"
+        },
+        "attrs": {},
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::ReminderCollection",
+          "id": "user_local"
+        },
+        "attrs": {
+          "owner": "user_local"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::User",
+          "id": "user_local"
+        },
+        "attrs": {},
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [],
+    "num_errors": 0
+  },
+  {
+    "name": "P07 an action absent from the schema fails request validation",
+    "agtyle": {
+      "id": "P07",
+      "expected_outcome": "error",
+      "cedar_evaluable": false,
+      "description": "An undeclared action is a fail-closed error, never a silent deny"
+    },
+    "request": {
+      "principal": "Agtyle::Agent::\"steward\"",
+      "action": "Agtyle::Action::\"reminder.explode\"",
+      "resource": "Agtyle::ReminderCollection::\"user_local\"",
+      "context": {
+        "origin_user_id": "user_local",
+        "has_direct_user_instruction": true,
+        "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "approval_present": false,
+        "approval_valid": false
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "Agtyle::Agent",
+          "id": "steward"
+        },
+        "attrs": {},
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::ReminderCollection",
+          "id": "user_local"
+        },
+        "attrs": {
+          "owner": "user_local"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::User",
+          "id": "user_local"
+        },
+        "attrs": {},
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [],
+    "num_errors": 0
+  },
+  {
+    "name": "P08 a malformed context fails request validation",
+    "agtyle": {
+      "id": "P08",
+      "expected_outcome": "error",
+      "cedar_evaluable": false,
+      "description": "A wrongly typed context field must fail closed, not evaluate"
+    },
+    "request": {
+      "principal": "Agtyle::Agent::\"steward\"",
+      "action": "Agtyle::Action::\"reminder.create\"",
+      "resource": "Agtyle::ReminderCollection::\"user_local\"",
+      "context": {
+        "origin_user_id": "user_local",
+        "has_direct_user_instruction": "yes",
+        "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "approval_present": false,
+        "approval_valid": false
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "Agtyle::Agent",
+          "id": "steward"
+        },
+        "attrs": {},
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::ReminderCollection",
+          "id": "user_local"
+        },
+        "attrs": {
+          "owner": "user_local"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::User",
+          "id": "user_local"
+        },
+        "attrs": {},
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [],
+    "num_errors": 0
+  },
+  {
+    "name": "P09 email.send without an approval is denied by Cedar",
+    "agtyle": {
+      "id": "P09",
+      "expected_outcome": "deny",
+      "cedar_evaluable": true,
+      "description": "An approval-eligible capability maps this deny to require_approval"
+    },
+    "request": {
+      "principal": "Agtyle::Agent::\"steward\"",
+      "action": "Agtyle::Action::\"email.send\"",
+      "resource": "Agtyle::Mailbox::\"user_local\"",
+      "context": {
+        "origin_user_id": "user_local",
+        "has_direct_user_instruction": true,
+        "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "approval_present": false,
+        "approval_valid": false
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "Agtyle::Agent",
+          "id": "steward"
+        },
+        "attrs": {},
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::Mailbox",
+          "id": "user_local"
+        },
+        "attrs": {
+          "owner": "user_local"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::User",
+          "id": "user_local"
+        },
+        "attrs": {},
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [],
+    "num_errors": 0
+  },
+  {
+    "name": "P10 finance.transfer is forbidden outright",
+    "agtyle": {
+      "id": "P10",
+      "expected_outcome": "deny",
+      "cedar_evaluable": true,
+      "description": "A forbid always wins, so no future permit can re-enable it"
+    },
+    "request": {
+      "principal": "Agtyle::Agent::\"steward\"",
+      "action": "Agtyle::Action::\"finance.transfer\"",
+      "resource": "Agtyle::Account::\"user_local\"",
+      "context": {
+        "origin_user_id": "user_local",
+        "has_direct_user_instruction": true,
+        "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "approval_present": false,
+        "approval_valid": false
+      }
+    },
+    "entities": [
+      {
+        "uid": {
+          "type": "Agtyle::Agent",
+          "id": "steward"
+        },
+        "attrs": {},
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::Account",
+          "id": "user_local"
+        },
+        "attrs": {
+          "owner": "user_local"
+        },
+        "parents": []
+      },
+      {
+        "uid": {
+          "type": "Agtyle::User",
+          "id": "user_local"
+        },
+        "attrs": {},
+        "parents": []
+      }
+    ],
+    "decision": "deny",
+    "reason": [
+      "forbid-any-finance-transfer"
+    ],
+    "num_errors": 0
+  }
+]

@@ -17,6 +17,7 @@ import yaml
 from agtyle.adapters.validation.json_schema import JsonSchemaRegistry
 from agtyle.domain.agents import AgentManifest
 from agtyle.domain.common import ConfigurationInvalidError, canonical_json
+from agtyle.ports.registry import CapabilitySpec
 
 REQUIRED_AGENT_FILES: Final[tuple[str, ...]] = (
     "manifest.yaml",
@@ -56,16 +57,9 @@ class RegisteredAgent:
         return self.manifest.version
 
 
-@dataclass(frozen=True)
-class RegisteredCapability:
-    """A capability the kernel knows how to authorize, validate and execute."""
-
-    name: str
-    version: int
-    action_schema_id: str
-    adapter_name: str
-    approval_eligible: bool
-    enabled: bool = True
+#: The registry adapter stores the port's capability model directly; there is nothing
+#: filesystem-specific about a capability declaration.
+RegisteredCapability = CapabilitySpec
 
 
 #: The baseline capability set. `reminder.create` is not approval-eligible because it is a
@@ -98,6 +92,9 @@ class Registry:
     def agents(self) -> list[RegisteredAgent]:
         return [self._agents[key] for key in sorted(self._agents)]
 
+    def agent_manifest(self, agent_id: str) -> AgentManifest:
+        return self.agent(agent_id).manifest
+
     def agent(self, agent_id: str, version: int | None = None) -> RegisteredAgent:
         if version is not None:
             try:
@@ -112,10 +109,10 @@ class Registry:
     def has_agent(self, agent_id: str) -> bool:
         return any(name == agent_id for name, _ in self._agents)
 
-    def agent_for_assignment(self, assignment_type: str) -> RegisteredAgent | None:
+    def agent_for_assignment(self, assignment_type: str) -> AgentManifest | None:
         for agent in self.agents:
             if agent.manifest.accepts_type(assignment_type):
-                return agent
+                return agent.manifest
         return None
 
     # -- capabilities ----------------------------------------------------------------

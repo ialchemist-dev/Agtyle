@@ -1,0 +1,64 @@
+// Agtyle authorization schema.
+//
+// Cedar answers one question: may this principal perform this action on this resource in this
+// context? Business-data correctness — whether a due time is in the future, whether a title is
+// too long — is domain validation and is deliberately absent here.
+
+namespace Agtyle {
+    // An Agent is a principal. Identity comes from the registry, not from Agent output.
+    entity Agent;
+
+    // A User is the human on whose behalf work happens.
+    entity User;
+
+    // Resources carry the owning user id so a policy can require same-user scope.
+    entity ReminderCollection = {
+        "owner": String,
+    };
+
+    entity Mailbox = {
+        "owner": String,
+    };
+
+    entity Account = {
+        "owner": String,
+    };
+
+    // Every action shares one context shape so the kernel builds requests uniformly and a
+    // malformed context is rejected by request validation rather than reaching a policy.
+    action "reminder.create" appliesTo {
+        principal: [Agent],
+        resource: [ReminderCollection],
+        context: {
+            "origin_user_id": String,
+            "has_direct_user_instruction": Bool,
+            "payload_hash": String,
+            "approval_present": Bool,
+            "approval_valid": Bool,
+        },
+    };
+
+    action "email.send" appliesTo {
+        principal: [Agent],
+        resource: [Mailbox],
+        context: {
+            "origin_user_id": String,
+            "has_direct_user_instruction": Bool,
+            "payload_hash": String,
+            "approval_present": Bool,
+            "approval_valid": Bool,
+        },
+    };
+
+    action "finance.transfer" appliesTo {
+        principal: [Agent],
+        resource: [Account],
+        context: {
+            "origin_user_id": String,
+            "has_direct_user_instruction": Bool,
+            "payload_hash": String,
+            "approval_present": Bool,
+            "approval_valid": Bool,
+        },
+    };
+}

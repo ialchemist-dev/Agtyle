@@ -19,7 +19,7 @@ in this log's work packages establish the first baseline.
 - [x] WP-01 Contracts and domain state
 - [x] WP-02 Persistence and migrations
 - [x] WP-03 Agent and capability registry
-- [ ] WP-04 Cedar authorization
+- [x] WP-04 Cedar authorization
 - [ ] WP-05 Interaction, dispatch and Task Worker
 - [ ] WP-06 Reminder Action vertical slice
 - [ ] WP-07 Scheduler and Notification closure
@@ -166,3 +166,45 @@ its types here deliberately.
 unlocks; everything else is dropped, and credential-shaped keys are dropped even if a scope
 would have admitted them. A deny-list would silently leak the next preference key someone adds.
 *Affected requirement:* §9.2 of the architecture, §12.1.
+
+---
+
+## 2026-08-09 — WP-04 Cedar authorization
+
+**D-019 — The Cedar CLI reports decisions as text and exit codes, not JSON.**
+§15.1 asks the adapter to "parse only documented JSON output". Cedar CLI 4.12.0 has no JSON
+decision format: `cedar authorize` prints `ALLOW`/`DENY` and exits 0 / 2, and reserves JSON for
+diagnostics under `-f json`. The adapter therefore keys the decision off the documented exit
+code plus an exact token match, and parses only Cedar's JSON diagnostics for error text. Any
+other exit code, any missing token, and any unparsable output map to `CedarDecision.ERROR`,
+which is fail-closed. This is a deviation from the letter of §15.1 and is recorded here rather
+than silently implemented.
+*Affected requirement:* §15.1.
+
+**D-020 — Resource ownership is a Cedar entity attribute, not a caller assertion.**
+`ReminderCollection::"<user_id>"` carries `owner`, and `permit-steward-direct-reminder` requires
+`resource.owner == context.origin_user_id`. Case P03 (a collection belonging to another user)
+is therefore denied by policy rather than by an application-level check that a future refactor
+could bypass.
+*Affected requirement:* §15.2, §15.4.
+
+**D-021 — P07 and P08 are stored in `tests.json` but cannot run through `cedar run-tests`.**
+Cedar's own test runner expresses only `allow`/`deny`. An undeclared action (P07) and a
+wrongly-typed context field (P08) fail *request validation*, which is a third outcome. All ten
+cases live in `policies/cedar/tests.json` as required, each tagged with
+`agtyle.cedar_evaluable`; the Python contract test runs all ten through the real adapter and
+asserts P07/P08 produce `ERROR` with reason `cedar_request_invalid`, and separately feeds the
+eight evaluable cases to `cedar run-tests` so the data is validated by Cedar itself too.
+*Affected requirement:* §15.4.
+
+**D-022 — Policy validation includes a deny-by-default self-test.**
+§15.5 step 4 requires a minimal self-test at startup. `validate_policy_set` authorizes a
+synthetic principal that no policy mentions and requires the answer to be `DENY`. A policy set
+that validates but somehow permits an unknown principal makes the deployment unready.
+*Affected requirement:* §15.5.
+
+**D-023 — Cedar diagnostics have temporary paths stripped before storage.**
+Request data is written to `0600` temporary files removed in a `finally` block, but Cedar names
+that path in its error text. `_strip_temp_paths` rewrites it to `<request>` so stored
+PolicyDecisions and API problem responses are stable and disclose nothing about the filesystem.
+*Affected requirement:* §15.1, §19.7.
