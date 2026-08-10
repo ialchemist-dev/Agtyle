@@ -70,6 +70,11 @@ from agtyle.observability.logging import LogContext, get_logger
 from agtyle.ports.agent_runtime import AgentRuntimePort
 from agtyle.ports.capability import ActionExecutionResult, CapabilityPort
 from agtyle.ports.clock import ClockPort
+from agtyle.ports.failure_injection import (
+    Checkpoint,
+    FailureInjectorPort,
+    NullFailureInjector,
+)
 from agtyle.ports.id_generator import IdGeneratorPort
 from agtyle.ports.registry import AgentRegistryPort
 from agtyle.ports.repositories import UnitOfWorkFactory
@@ -124,6 +129,7 @@ class ExecutionService:
         notification_adapter: str,
         max_notification_attempts: int,
         user_preferences: dict[str, Any] | None = None,
+        failures: FailureInjectorPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._registry = registry
@@ -138,6 +144,7 @@ class ExecutionService:
         self._notification_adapter = notification_adapter
         self._max_notification_attempts = max_notification_attempts
         self._preferences = user_preferences or {}
+        self._failures = failures or NullFailureInjector()
 
     # ----------------------------------------------------------------------------------
     # Claim
@@ -230,6 +237,8 @@ class ExecutionService:
                 f"no runtime registered for agent {task.assigned_agent_id}", task_id=task.id
             )
 
+        await self._failures.checkpoint(Checkpoint.AFTER_TASK_CLAIM_COMMIT)
+
         context = self._context_for(task, manifest.context_scopes, manifest.capabilities.requested)
         assignment = AgentAssignment(
             assignment_type=task.task_type,
@@ -240,6 +249,7 @@ class ExecutionService:
         )
 
         output = await runtime.run(assignment, context)
+        await self._failures.checkpoint(Checkpoint.AFTER_AGENT_OUTPUT)
 
         # Agent output is untrusted structured input. Anything that is not exactly one
         # ActionRequest proposal ends the attempt without touching a Capability.
@@ -256,8 +266,10 @@ class ExecutionService:
 
         action = self._materialize_action(task, run, output)
         action = await self._persist_action(task, action)
+        await self._failures.checkpoint(Checkpoint.AFTER_ACTION_PERSISTED)
 
         evaluation = await self._authorize(task, action)
+        await self._failures.checkpoint(Checkpoint.AFTER_POLICY_DECISION_COMMIT)
 
         if evaluation.outcome is PolicyOutcome.REQUIRE_APPROVAL:
             return await self._park_for_approval(claimed, action, owner=owner)
@@ -278,11 +290,30 @@ class ExecutionService:
                 f"no adapter registered for capability {action.capability}", task_id=task.id
             )
 
+        # Ownership is re-checked immediately before the only consequential step. A Worker whose
+        # lease was recovered by another process must not cause an external effect at all, not
+        # merely be prevented from recording one.
+        await self._assert_still_owns(task, owner=owner)
+
         started_at = self._clock.now()
         execution = await capability.execute(action)
-        return await self._finalize_success(
+        # A crash here has already produced the effect; the completion transaction has not run.
+        await self._failures.checkpoint(Checkpoint.AFTER_CAPABILITY_EXECUTION)
+        report = await self._finalize_success(
             claimed, action, execution, owner=owner, started_at=started_at
         )
+        await self._failures.checkpoint(Checkpoint.AFTER_COMPLETION_COMMIT)
+        return report
+
+    async def _assert_still_owns(self, task: Task, *, owner: str) -> None:
+        now = self._clock.now()
+        async with self._uow_factory() as uow:
+            current = await uow.tasks.get(task.id)
+            await uow.rollback()
+        if current is None or not current.owns_lease(owner, now=now):
+            raise LeaseLostError(
+                "another worker recovered this task before the capability ran", task_id=task.id
+            )
 
     # ----------------------------------------------------------------------------------
     # Steps

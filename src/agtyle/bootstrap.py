@@ -45,6 +45,7 @@ from agtyle.observability.logging import configure_logging
 from agtyle.ports.agent_runtime import AgentRuntimePort
 from agtyle.ports.capability import CapabilityPort
 from agtyle.ports.clock import ClockPort, SystemClock
+from agtyle.ports.failure_injection import FailureInjectorPort
 from agtyle.ports.id_generator import IdGeneratorPort, Uuid7Generator
 from agtyle.ports.notification import NotificationPort
 
@@ -83,6 +84,7 @@ def build_container(
     clock: ClockPort | None = None,
     ids: IdGeneratorPort | None = None,
     notification_adapters: dict[str, NotificationPort] | None = None,
+    failures: FailureInjectorPort | None = None,
     configure_logs: bool = True,
 ) -> Container:
     """Compose the application. Any configuration problem raises rather than degrading."""
@@ -152,6 +154,7 @@ def build_container(
         notification_adapter=resolved.notification_adapter.value,
         max_notification_attempts=resolved.max_notification_attempts,
         user_preferences=preferences,
+        failures=failures,
     )
     interaction_service = InteractionService(
         uow_factory=uow_factory,
@@ -171,6 +174,7 @@ def build_container(
         lease_seconds=resolved.notification_lease_seconds,
         notification_adapter=resolved.notification_adapter.value,
         max_notification_attempts=resolved.max_notification_attempts,
+        failures=failures,
     )
     notification_service = NotificationService(
         uow_factory=uow_factory,
@@ -179,6 +183,7 @@ def build_container(
         ids=resolved_ids,
         retry_policy=retry_policy,
         lease_seconds=resolved.notification_lease_seconds,
+        failures=failures,
     )
     timeline_service = TimelineService(uow_factory=uow_factory)
     recovery_service = RecoveryService(

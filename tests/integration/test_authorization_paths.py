@@ -25,7 +25,6 @@ from agtyle.domain.reminders import ReminderStatus
 from agtyle.domain.tasks import TaskStatus
 from agtyle.ports.capability import ActionExecutionResult
 from agtyle.workers.task_worker import TaskWorker
-
 from tests.fakes.runtimes import ScriptedRuntime
 
 from .conftest import interaction, record_counts
@@ -114,7 +113,7 @@ async def test_missing_cedar_fails_closed_without_reminder(
         policies=container.settings.cedar_policies,
         pinned_version=CEDAR_PINNED_VERSION,
     )
-    container.execution_service._policy = PolicyService(  # noqa: SLF001 - substituting one port
+    container.execution_service._policy = PolicyService(
         registry=container.registry,
         schemas=container.schemas,
         authorization=broken,
@@ -306,7 +305,6 @@ async def test_interactive_timeout_converts_same_task_to_delegated(
     container: Container, task_worker: TaskWorker
 ) -> None:
     from agtyle.domain.tasks import ExecutionMode
-
     from tests.fakes.runtimes import SlowRuntime
 
     proposal = ActionRequestProposal(
@@ -322,7 +320,7 @@ async def test_interactive_timeout_converts_same_task_to_delegated(
         },
     )
     container.agent_runtimes["steward"] = SlowRuntime(proposal, delay_seconds=5.0)  # type: ignore[assignment]
-    container.interaction_service._interactive_budget = 0.05  # noqa: SLF001 - shrink for the test
+    container.interaction_service._interactive_budget = 0.05
 
     result = await container.interaction_service.handle(interaction(mode=ExecutionMode.INTERACTIVE))
     assert result.task_receipt is not None

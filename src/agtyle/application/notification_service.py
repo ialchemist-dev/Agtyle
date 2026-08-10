@@ -21,6 +21,11 @@ from agtyle.domain.notifications import Notification, NotificationKind
 from agtyle.domain.reminders import ReminderStatus
 from agtyle.observability.logging import LogContext, get_logger
 from agtyle.ports.clock import ClockPort
+from agtyle.ports.failure_injection import (
+    Checkpoint,
+    FailureInjectorPort,
+    NullFailureInjector,
+)
 from agtyle.ports.id_generator import IdGeneratorPort
 from agtyle.ports.notification import NotificationPort
 from agtyle.ports.repositories import UnitOfWorkFactory
@@ -53,6 +58,7 @@ class NotificationService:
         ids: IdGeneratorPort,
         retry_policy: RetryPolicy,
         lease_seconds: int,
+        failures: FailureInjectorPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._adapters = adapters
@@ -60,6 +66,7 @@ class NotificationService:
         self._ids = ids
         self._retry = retry_policy
         self._lease_seconds = lease_seconds
+        self._failures = failures or NullFailureInjector()
 
     async def claim_pending(self, *, owner: str) -> Notification | None:
         now = self._clock.now()
@@ -87,6 +94,9 @@ class NotificationService:
                 result = await adapter.deliver(notification)
             except Exception as exc:
                 return await self._record_failure(notification, detail=str(exc), permanent=False)
+
+            # The adapter has now observed the delivery; the durable record has not moved yet.
+            await self._failures.checkpoint(Checkpoint.AFTER_ADAPTER_DELIVERY)
 
             if not result.delivered:
                 return await self._record_failure(

@@ -21,6 +21,11 @@ from agtyle.domain.notifications import (
 from agtyle.domain.reminders import Reminder
 from agtyle.observability.logging import get_logger
 from agtyle.ports.clock import ClockPort
+from agtyle.ports.failure_injection import (
+    Checkpoint,
+    FailureInjectorPort,
+    NullFailureInjector,
+)
 from agtyle.ports.id_generator import IdGeneratorPort
 from agtyle.ports.repositories import UnitOfWorkFactory
 
@@ -43,6 +48,7 @@ class ReminderService:
         lease_seconds: int,
         notification_adapter: str,
         max_notification_attempts: int,
+        failures: FailureInjectorPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._clock = clock
@@ -50,6 +56,7 @@ class ReminderService:
         self._lease_seconds = lease_seconds
         self._notification_adapter = notification_adapter
         self._max_notification_attempts = max_notification_attempts
+        self._failures = failures or NullFailureInjector()
 
     async def claim_due(self) -> FiredReminder | None:
         """Atomic operation 6: claim, transition to firing, create the due Notification."""
@@ -102,6 +109,7 @@ class ReminderService:
             )
             await uow.commit()
 
+        await self._failures.checkpoint(Checkpoint.AFTER_REMINDER_FIRING_COMMIT)
         return FiredReminder(
             reminder_id=reminder.id,
             notification_id=notification.id,
