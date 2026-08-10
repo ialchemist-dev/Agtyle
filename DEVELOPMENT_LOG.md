@@ -23,8 +23,8 @@ in this log's work packages establish the first baseline.
 - [x] WP-05 Interaction, dispatch and Task Worker
 - [x] WP-06 Reminder Action vertical slice
 - [x] WP-07 Scheduler and Notification closure
-- [ ] WP-08 Inspection, observability and recovery
-- [ ] WP-09 Acceptance automation
+- [x] WP-08 Inspection, observability and recovery
+- [x] WP-09 Acceptance automation
 
 ### Decisions
 
@@ -251,3 +251,48 @@ guarantees exactly-once Notification *creation* through the unique delivery key 
 adapter invocation. The recording adapter closes the last gap locally by suppressing a repeated
 delivery key, which is what makes "exactly-once observed delivery" assertable in acceptance.
 *Affected requirement:* §17.2.
+
+---
+
+## 2026-08-09 — WP-08 and WP-09: inspection, acceptance and the required seams
+
+**D-029 — Log files in the live demo are per run.**
+The first version of `scripts/reminder_demo.py` reused one log file per role, so restarting the
+roles truncated the evidence of the first run and the duplicate check compared against nothing.
+Logs are now `<role>.run<n>.log`. Worth stating plainly because the bug made the demo *pass*
+its duplicate check for the wrong reason before the restart step, and only failed afterwards.
+*Affected requirement:* §22.
+
+**D-030 — `NotImplementedAdapter`s are wired into the container, not merely defined.**
+§3.2 requires `KnowledgePort`, `SecretStorePort` and `WorkflowEnginePort` to exist with contract
+tests even though the reminder path never calls them. Each has an adapter in
+`agtyle.adapters.unimplemented` that raises a typed `ConfigurationInvalidError` naming the port
+and the slice that will implement it, and each is placed on the container. If the reminder path
+ever grows a dependency on one, it fails loudly at that call instead of silently succeeding.
+*Affected requirement:* §3.2, rule 14.
+
+**D-031 — Port contract suites are written against the port, not the implementation.**
+`tests/contract/test_port_contracts.py` parametrizes the NotificationPort suite over both
+adapters and exercises CapabilityPort through its protocol. A future MCP reminder capability or
+Slack notifier is verified by exactly these tests, which is what §11 means by "adapters MUST pass
+the same contract test suite".
+*Affected requirement:* §11, §19.3.
+
+**D-032 — Drift detection compares Pydantic models to the committed schemas directly.**
+`tests/contract/test_schema_drift.py` asserts field-set and required-set equality between
+`ReminderCreatePayload` and its JSON Schema, between `ActionRequestProposal` and the committed
+envelope, and pins the error taxonomy and every persisted enum value. Those enum strings live in
+`CHECK` constraints in a STRICT database, so a rename is a migration, not a refactor.
+*Affected requirement:* §19.3.
+
+**D-033 — Coverage floors are enforced by a script, not by a single global threshold.**
+§25.2 sets different floors for different layers. `scripts/check_coverage.py` reads the coverage
+JSON and enforces 90% branch coverage across `domain` and `application` separately from the 80%
+overall floor. Observed on this machine: 91.86% core, 85.8% overall.
+*Affected requirement:* §25.2.
+
+**D-034 — Performance sanity is measured, not asserted.**
+The report generator measures the §25.3 targets on the machine running it and flags anything
+above twice its target. Observed p95 on an Apple M-series machine: interaction receipt 0.70 ms,
+task claim 0.55 ms, Cedar decision 7.94 ms, due detection 0.18 ms.
+*Affected requirement:* §25.3.

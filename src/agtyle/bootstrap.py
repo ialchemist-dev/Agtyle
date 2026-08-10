@@ -22,7 +22,13 @@ from agtyle.adapters.persistence import migrator
 from agtyle.adapters.persistence.database import create_database_engine
 from agtyle.adapters.persistence.unit_of_work import SqliteUnitOfWorkFactory
 from agtyle.adapters.registry import Registry, load_registry
+from agtyle.adapters.unimplemented import (
+    NotImplementedKnowledgeAdapter,
+    NotImplementedSecretStoreAdapter,
+    NotImplementedWorkflowAdapter,
+)
 from agtyle.adapters.validation.json_schema import JsonSchemaRegistry
+from agtyle.application.approval_service import ApprovalService
 from agtyle.application.dispatch_service import DispatchService
 from agtyle.application.execution_service import ExecutionService
 from agtyle.application.interaction_service import InteractionService
@@ -47,7 +53,10 @@ from agtyle.ports.capability import CapabilityPort
 from agtyle.ports.clock import ClockPort, SystemClock
 from agtyle.ports.failure_injection import FailureInjectorPort
 from agtyle.ports.id_generator import IdGeneratorPort, Uuid7Generator
+from agtyle.ports.knowledge import KnowledgePort
 from agtyle.ports.notification import NotificationPort
+from agtyle.ports.secret_store import SecretStorePort
+from agtyle.ports.workflow import WorkflowEnginePort
 
 
 @dataclass(frozen=True)
@@ -70,6 +79,10 @@ class Container:
     notification_service: NotificationService
     recovery_service: RecoveryService
     timeline_service: TimelineService
+    approval_service: ApprovalService
+    knowledge: KnowledgePort
+    secrets: SecretStorePort
+    workflows: WorkflowEnginePort
     notification_adapters: dict[str, NotificationPort] = field(default_factory=dict)
     capabilities: dict[str, CapabilityPort] = field(default_factory=dict)
     agent_runtimes: dict[str, AgentRuntimePort] = field(default_factory=dict)
@@ -186,6 +199,9 @@ def build_container(
         failures=failures,
     )
     timeline_service = TimelineService(uow_factory=uow_factory)
+    approval_service = ApprovalService(
+        uow_factory=uow_factory, clock=resolved_clock, ids=resolved_ids
+    )
     recovery_service = RecoveryService(
         uow_factory=uow_factory,
         clock=resolved_clock,
@@ -212,6 +228,12 @@ def build_container(
         notification_service=notification_service,
         recovery_service=recovery_service,
         timeline_service=timeline_service,
+        approval_service=approval_service,
+        # Required seams with no production adapter in this baseline. They fail loudly rather
+        # than quietly succeeding if the reminder path ever grows a dependency on them.
+        knowledge=NotImplementedKnowledgeAdapter(),
+        secrets=NotImplementedSecretStoreAdapter(),
+        workflows=NotImplementedWorkflowAdapter(),
         notification_adapters=adapters,
         capabilities=capabilities,
         agent_runtimes=runtimes,
