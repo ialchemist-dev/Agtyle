@@ -31,6 +31,7 @@ from agtyle.application.policy_service import PolicyService
 from agtyle.application.recovery_service import RecoveryService
 from agtyle.application.reminder_service import ReminderService
 from agtyle.application.retry_policy import RetryPolicy
+from agtyle.application.timeline import TimelineService
 from agtyle.config import (
     CEDAR_PINNED_VERSION,
     AgentRuntimeName,
@@ -67,6 +68,7 @@ class Container:
     reminder_service: ReminderService
     notification_service: NotificationService
     recovery_service: RecoveryService
+    timeline_service: TimelineService
     notification_adapters: dict[str, NotificationPort] = field(default_factory=dict)
     capabilities: dict[str, CapabilityPort] = field(default_factory=dict)
     agent_runtimes: dict[str, AgentRuntimePort] = field(default_factory=dict)
@@ -178,6 +180,7 @@ def build_container(
         retry_policy=retry_policy,
         lease_seconds=resolved.notification_lease_seconds,
     )
+    timeline_service = TimelineService(uow_factory=uow_factory)
     recovery_service = RecoveryService(
         uow_factory=uow_factory,
         clock=resolved_clock,
@@ -203,6 +206,7 @@ def build_container(
         reminder_service=reminder_service,
         notification_service=notification_service,
         recovery_service=recovery_service,
+        timeline_service=timeline_service,
         notification_adapters=adapters,
         capabilities=capabilities,
         agent_runtimes=runtimes,
