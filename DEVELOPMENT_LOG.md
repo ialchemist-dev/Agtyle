@@ -17,7 +17,7 @@ in this log's work packages establish the first baseline.
 
 - [x] WP-00 Repository foundation
 - [x] WP-01 Contracts and domain state
-- [ ] WP-02 Persistence and migrations
+- [x] WP-02 Persistence and migrations
 - [ ] WP-03 Agent and capability registry
 - [ ] WP-04 Cedar authorization
 - [ ] WP-05 Interaction, dispatch and Task Worker
@@ -101,3 +101,44 @@ lease when work continues.
 `RetryPolicy` derives jitter from a SHA-256 of the seed identifier, so production still spreads
 retries across Tasks while the same input always produces the same schedule.
 *Affected requirement:* §16.4.
+
+---
+
+## 2026-08-09 — WP-02 Persistence and migrations
+
+**D-011 — The initial migration snapshots `models.metadata`; later revisions must not.**
+Declaring the schema twice (once for the ORM, once in migration DDL) is the usual source of
+drift, and §10.5 demands introspection proof rather than trust. The single initial revision
+therefore calls `metadata.create_all`, and `scripts/migration_check.py` verifies the *result* on
+a throwaway database: up, revision equals head, down to base, up again, then required tables,
+indexes, unique constraints, STRICT declarations, Event triggers, foreign-key enforcement and
+JSON validity. Any later revision must use explicit Alembic operations so it stays frozen.
+*Affected requirement:* §10.3, §10.5.
+
+**D-012 — `STRICT` is emitted by a SQLAlchemy compiler hook.**
+SQLAlchemy 2 has no dialect flag for SQLite STRICT tables. `models._compile_create_table`
+appends `STRICT` for tables carrying `info={"sqlite_strict": True}`, so the declaration lives with
+the table rather than in hand-written DDL.
+*Affected requirement:* §10.3.
+
+**D-013 — Booleans and timestamps have one storage form each.**
+STRICT tables have no BOOLEAN type, so `single_use` and `enabled` are INTEGER with
+`CHECK(col IN (0,1))`. All timestamps are TEXT in the canonical `%Y-%m-%dT%H:%M:%S.%fZ` UTC form,
+which sorts lexicographically, so due-time and lease comparisons work directly in SQL.
+*Affected requirement:* §9.2, §10.6.
+
+**D-014 — Claims use `BEGIN IMMEDIATE` plus a conditional update on `row_version`.**
+SQLite defers the write lock until the first write, which turns read-then-write claiming into a
+late upgrade that can fail with `SQLITE_BUSY`. The Unit of Work opens `BEGIN IMMEDIATE`, so
+competing processes queue on the busy timeout instead. Exclusion itself comes from the
+conditional `UPDATE ... WHERE status = ? AND row_version = ?`: the winner is whichever process
+changes exactly one row. Threaded tests prove two Workers claim one Task, two Schedulers create
+one due Notification, and two Notification Workers claim one delivery.
+*Affected requirement:* §10.2, §14.4, §16.1, §19.4.
+
+**D-015 — A STRICT TEXT column still accepts numeric literals.**
+SQLite applies TEXT affinity before the STRICT check, so `INSERT ... VALUES (12.5)` into a TEXT
+column stores `'12.5'` rather than failing. The storage-class test therefore uses a BLOB into
+TEXT and a non-numeric string into INTEGER, which STRICT does reject. Worth knowing: STRICT
+prevents type confusion, it does not prevent lossless coercion.
+*Affected requirement:* §19.4.
