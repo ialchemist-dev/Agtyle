@@ -386,3 +386,49 @@ async def test_notification_claim_marks_it_delivering(
     assert claimed is not None
     assert claimed.delivery_status is DeliveryStatus.DELIVERING
     assert claimed.attempt_count == 1
+
+
+async def test_artifact_metadata_round_trips(uow_factory: SqliteUnitOfWorkFactory) -> None:
+    """Artifact storage has no adapter in this baseline, but its metadata seam must work."""
+    from agtyle.domain.artifacts import Artifact, ArtifactKind
+
+    await seed_task(uow_factory)
+    artifact = Artifact(
+        id="art_00000000-0000-7000-8000-000000000001",
+        task_id=TASK_ID,
+        kind=ArtifactKind.DRAFT,
+        media_type="text/markdown",
+        storage_ref="artifact://local/draft-1.md",
+        content_hash="sha256:" + "d" * 64,
+        metadata={"word_count": 42},
+        created_at=NOW,
+    )
+    async with uow_factory() as uow:
+        await uow.actions.add_artifact(artifact)
+        await uow.commit()
+
+    async with uow_factory() as uow:
+        stored = await uow.actions.list_artifacts(TASK_ID)
+    assert stored == [artifact]
+    assert stored[0].metadata["word_count"] == 42
+
+
+async def test_an_artifact_requires_an_existing_task(
+    uow_factory: SqliteUnitOfWorkFactory,
+) -> None:
+    from agtyle.domain.artifacts import Artifact, ArtifactKind
+
+    with pytest.raises(IntegrityError):
+        async with uow_factory() as uow:
+            await uow.actions.add_artifact(
+                Artifact(
+                    id="art_00000000-0000-7000-8000-000000000002",
+                    task_id="task_00000000-0000-7000-8000-0000000000ff",
+                    kind=ArtifactKind.REPORT,
+                    media_type="text/plain",
+                    storage_ref="artifact://local/orphan.txt",
+                    content_hash="sha256:" + "e" * 64,
+                    created_at=NOW,
+                )
+            )
+            await uow.commit()

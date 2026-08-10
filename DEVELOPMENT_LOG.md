@@ -326,3 +326,64 @@ Found while testing the gate: a manifest with invalid YAML escaped as a raw `yam
 traceback instead of `AGT-SYSTEM-001`. `_load_agent` now converts parser failures, so every
 registry failure mode reaches the operator through the same error taxonomy.
 *Affected requirement:* §11.2, §12.1.
+
+---
+
+## 2026-08-10 — Handoff state
+
+### What was verified, and how
+
+| Gate | Result |
+|---|---|
+| `ruff format --check`, `ruff check` | pass, 121 files |
+| `mypy --strict src/agtyle` | pass, 73 source files |
+| `pytest tests` | 481 passed, 0 failed, 0 skipped |
+| Branch coverage | 91.8% across `domain` and `application`, 88.2% overall |
+| `scripts/migration_check.py` | up / down / up on a throwaway database, plus schema introspection |
+| Cedar policy matrix | P01–P10 all matched, through the adapter and through `cedar run-tests` |
+| `make verify` | pass, `unmet_requirements: []` |
+| `make demo-reminder` | all eight milestones, four real processes, ~9 s |
+| `make clean-clone-verify` | pass from a fresh clone at HEAD, ~37 s |
+| Secret scan | 172 tracked files; the only matches are deliberate fake credentials in the redaction tests |
+
+Nothing generated is tracked: no database, virtual environment, `.tools/`, `.env`, or
+verification artifact other than `artifacts/verification/.gitkeep`. Only `.gitignore` and
+`README.md` were modified among pre-existing files; the architecture design and the
+specification are untouched.
+
+### Unmet requirements
+
+None of the specification's MUST requirements are known to be unmet. Every deviation is recorded
+as a numbered decision above, and the two that change observable behaviour are D-019 (the Cedar
+CLI reports decisions by exit code and token rather than JSON) and D-024/D-025 (one added error
+code, and the legal `running -> failed -> assigned` path for interactive conversion).
+
+### Known limitations
+
+These are boundaries of the baseline, not defects. Each is explicitly out of scope in §3.3 or is
+deferred to a later slice in §28.
+
+1. **The Agent runtimes are deterministic, not model-backed.** `AgentRuntimePort` exists and the
+   kernel is indifferent to what implements it, but no LLM adapter ships here. The deterministic
+   Executive recognizes exactly one fixture family and refuses everything else rather than
+   guessing. A live adapter belongs behind the `live_agent` pytest marker, which is declared and
+   unused.
+2. **`REQUIRE_APPROVAL` is modelled and tested, but nothing in the reminder path triggers it.**
+   `reminder.create` is deliberately not approval-eligible. The Approval model, service, atomic
+   consumption and Cedar mapping all exist and are covered, but Slice C (approval-gated email
+   send) is the acceptance slice that exercises the whole path end to end.
+3. **`KnowledgePort`, `SecretStorePort` and `WorkflowEnginePort` have no production adapters.**
+   Each has a `NotImplementedAdapter` wired into the container that raises a typed error naming
+   the port and the slice that will implement it.
+4. **Windows is unverified.** The Cedar installer recognizes `x86_64-pc-windows-msvc` and would
+   install the official asset, but no Windows CI job runs. Unsupported hosts fail with a clear
+   message rather than downloading the wrong binary.
+5. **Python 3.13 is permitted by metadata but not verified.** `requires-python` is
+   `>=3.12,<3.14` as specified; the lock file, CI and the clean-clone verifier all resolve 3.12.
+6. **Exactly-once delivery is guaranteed only for the local recording adapter.** Agtyle
+   guarantees exactly-once Notification creation and at-least-once adapter invocation. Any future
+   channel without an idempotent write must document its reconciliation strategy and residual
+   duplicate risk, as §17.2 requires.
+7. **The database is SQLite and the deployment is single-node.** Claim exclusion relies on
+   `BEGIN IMMEDIATE` plus conditional updates on `row_version`. That is correct for processes
+   sharing one filesystem; it is not a distributed lock.
