@@ -163,13 +163,17 @@ def create_app(settings: Settings | None = None, *, container: Container | None 
         checks["registry_agents"] = [agent.id for agent in container.registry.agents]
         checks["capabilities"] = [item.name for item in container.registry.capabilities]
 
-        consistency = await container.registry_sync.check()
-        checks["registry_snapshot_synced"] = consistency.synced
-        checks["registry_snapshot_consistent"] = consistency.consistent
-        if not consistency.consistent:
-            checks["registry_disagreements"] = [
-                item.model_dump(mode="json") for item in consistency.disagreements
-            ]
+        if checks["database_migrated"]:
+            consistency = await container.registry_sync.check()
+            checks["registry_snapshot_synced"] = consistency.synced
+            checks["registry_snapshot_consistent"] = consistency.consistent
+            if not consistency.consistent:
+                checks["registry_disagreements"] = [
+                    item.model_dump(mode="json") for item in consistency.disagreements
+                ]
+        else:
+            checks["registry_snapshot_synced"] = False
+            checks["registry_snapshot_consistent"] = False
 
         report = await container.authorization.validate_policy_set()
         checks["cedar_binary_present"] = container.authorization.configuration_problem() is None

@@ -17,9 +17,11 @@ from typing import Annotated, Any
 import typer
 
 from agtyle import __version__
+from agtyle.adapters.persistence import migrator
 from agtyle.bootstrap import Container, build_container, migrate
 from agtyle.config import Settings, get_settings
 from agtyle.domain.common import AgtyleError, ConfigurationInvalidError
+from agtyle.domain.registry_snapshot import RegistryConsistency
 from agtyle.observability.logging import configure_logging
 from agtyle.workers.notification_worker import NotificationWorker
 from agtyle.workers.scheduler import Scheduler
@@ -79,7 +81,7 @@ def open_container(settings: Settings | None = None, *, check_registry: bool = T
     except AgtyleError as error:
         fail(error)
         raise  # pragma: no cover - fail always exits
-    if check_registry:
+    if check_registry and migrator.is_up_to_date(container.settings, container.engine):
         try:
             asyncio.run(container.registry_sync.require_consistent())
         except AgtyleError as error:
@@ -148,7 +150,14 @@ def validate() -> None:
     settings = load_settings()
     container = open_container(settings, check_registry=False)
     try:
-        consistency = asyncio.run(container.registry_sync.check())
+        # Validation must work on a checkout that has never been initialized, so the snapshot
+        # comparison is only meaningful once the database exists at head.
+        migrated = migrator.is_up_to_date(settings, container.engine)
+        consistency = (
+            asyncio.run(container.registry_sync.check())
+            if migrated
+            else RegistryConsistency(synced=False)
+        )
         report = asyncio.run(container.authorization.validate_policy_set())
         document = {
             "status": "valid" if report.valid else "invalid",
@@ -161,6 +170,7 @@ def validate() -> None:
             "cedar_valid": report.valid,
             "policy_ids": report.policy_ids,
             "errors": report.errors,
+            "database_migrated": migrated,
             "registry_snapshot_synced": consistency.synced,
             "registry_snapshot_consistent": consistency.consistent,
             "registry_disagreements": [
