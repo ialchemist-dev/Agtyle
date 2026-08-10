@@ -218,13 +218,27 @@ class Task(DomainModel):
     def convert_to_delegated(self, *, now: datetime) -> Task:
         """Interactive deadline reached: keep the same Task and let a Worker continue it.
 
-        This must not create a second Task, and it must leave the Task claimable.
+        The same Task id is preserved, so the user's receipt still describes the work that
+        actually continues. A Task that had already been claimed for the interactive attempt
+        travels the legal `running -> failed -> assigned` path, which records the abandoned
+        attempt honestly instead of pretending it never happened.
         """
         if self.execution_mode is not ExecutionMode.INTERACTIVE:
             raise IllegalTransitionError("task is not interactive", task_id=self.id)
+
+        moment = require_aware(now, field="now")
+        if self.status is TaskStatus.RUNNING:
+            abandoned = self.fail(
+                now=moment,
+                error_code=ErrorCode.AGENT_RUNTIME_TIMEOUT,
+                error_message="the interactive budget elapsed before the action was applied",
+            )
+            requeued = abandoned.reassign_for_retry(now=moment)
+            return requeued.model_copy(update={"execution_mode": ExecutionMode.DELEGATED})
+
         if self.status not in (TaskStatus.ASSIGNED, TaskStatus.CREATED):
             raise IllegalTransitionError(
-                "interactive conversion requires an unstarted task", task_id=self.id
+                "interactive conversion requires an unstarted or running task", task_id=self.id
             )
         return self.model_copy(
             update={
@@ -232,7 +246,7 @@ class Task(DomainModel):
                 "execution_mode": ExecutionMode.DELEGATED,
                 "lease_owner": None,
                 "lease_expires_at": None,
-                "updated_at": require_aware(now, field="now"),
+                "updated_at": moment,
                 "row_version": self.row_version + 1,
             }
         )

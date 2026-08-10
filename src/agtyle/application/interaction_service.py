@@ -29,6 +29,8 @@ from agtyle.application.dispatch_service import (
 from agtyle.application.execution_service import ExecutionOutcome, ExecutionService
 from agtyle.domain.agents import (
     AgentAssignment,
+    AgentRun,
+    AgentRunStatus,
     ClarificationResponse,
     ContextPack,
     ContextTask,
@@ -277,6 +279,7 @@ class InteractionService:
                 timeout=self._interactive_budget,
             )
         except TimeoutError:
+            await self._abandon_interactive_run(claimed.agent_run)
             return await self._convert_to_delegated(intent, receipt)
 
         if report.outcome is not ExecutionOutcome.COMPLETED:
@@ -299,6 +302,16 @@ class InteractionService:
             task_receipt=receipt_for(task),
             result={"reminder_id": report.reminder_id, "task_id": report.task_id},
         )
+
+    async def _abandon_interactive_run(self, run: AgentRun) -> None:
+        """The interactive attempt is over; its AgentRun must not stay `running` forever."""
+        async with self._uow_factory() as uow:
+            current = await uow.agent_runs.get(run.id)
+            if current is not None and current.status is AgentRunStatus.RUNNING:
+                await uow.agent_runs.update(current.abandon(now=self._clock.now()))
+                await uow.commit()
+            else:
+                await uow.rollback()
 
     async def _convert_to_delegated(
         self, intent: Intent, receipt: TaskReceipt

@@ -85,6 +85,7 @@ class ErrorCode(StrEnum):
     RETRY_EXHAUSTED = "AGT-TASK-003"
     INVALID_AGENT_OUTPUT = "AGT-AGENT-001"
     UNSUPPORTED_ASSIGNMENT = "AGT-AGENT-002"
+    AGENT_RUNTIME_TIMEOUT = "AGT-AGENT-003"
     POLICY_DENIED = "AGT-POLICY-001"
     APPROVAL_REQUIRED = "AGT-POLICY-002"
     POLICY_ENGINE_ERROR = "AGT-POLICY-003"
@@ -105,6 +106,7 @@ _PUBLIC_TITLES: Final[dict[ErrorCode, str]] = {
     ErrorCode.RETRY_EXHAUSTED: "Task retry budget exhausted",
     ErrorCode.INVALID_AGENT_OUTPUT: "Agent produced invalid output",
     ErrorCode.UNSUPPORTED_ASSIGNMENT: "Agent cannot accept this assignment",
+    ErrorCode.AGENT_RUNTIME_TIMEOUT: "Agent runtime did not answer in time",
     ErrorCode.POLICY_DENIED: "Action denied by policy",
     ErrorCode.APPROVAL_REQUIRED: "Action requires approval",
     ErrorCode.POLICY_ENGINE_ERROR: "Authorization engine error",
@@ -183,6 +185,12 @@ class InvalidAgentOutputError(AgtyleError):
 
 class UnsupportedAssignmentError(AgtyleError):
     code = ErrorCode.UNSUPPORTED_ASSIGNMENT
+
+
+class AgentRuntimeTimeoutError(AgtyleError):
+    """The Agent runtime exceeded its budget. Transient by nature, so a retry is allowed."""
+
+    code = ErrorCode.AGENT_RUNTIME_TIMEOUT
 
 
 class PolicyDeniedError(AgtyleError):

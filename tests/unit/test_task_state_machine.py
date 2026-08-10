@@ -154,12 +154,39 @@ def test_interactive_conversion_keeps_the_same_task() -> None:
     assert converted.lease_owner is None
 
 
-def test_interactive_conversion_rejects_a_started_task() -> None:
+def test_interactive_conversion_of_a_running_task_requeues_the_same_task() -> None:
+    """A claimed interactive attempt travels `running -> failed -> assigned`, keeping its id."""
     running = make_task(TaskStatus.ASSIGNED, execution_mode=ExecutionMode.INTERACTIVE).start(
         lease_owner="worker-1", now=NOW, lease_seconds=30
     )
+    converted = running.convert_to_delegated(now=NOW)
+    assert converted.id == running.id
+    assert converted.status is TaskStatus.ASSIGNED
+    assert converted.execution_mode is ExecutionMode.DELEGATED
+    assert converted.lease_owner is None
+    assert converted.attempt_count == 1
+    assert converted.last_error_code is ErrorCode.AGENT_RUNTIME_TIMEOUT
+
+
+def test_interactive_conversion_rejects_a_terminal_task() -> None:
+    completed = (
+        make_task(TaskStatus.ASSIGNED, execution_mode=ExecutionMode.INTERACTIVE)
+        .start(lease_owner="worker-1", now=NOW, lease_seconds=30)
+        .complete(now=NOW)
+    )
     with pytest.raises(IllegalTransitionError):
-        running.convert_to_delegated(now=NOW)
+        completed.convert_to_delegated(now=NOW)
+
+
+def test_interactive_conversion_refuses_when_the_retry_budget_is_gone() -> None:
+    exhausted = make_task(
+        TaskStatus.ASSIGNED,
+        execution_mode=ExecutionMode.INTERACTIVE,
+        attempt_count=2,
+        max_attempts=3,
+    ).start(lease_owner="worker-1", now=NOW, lease_seconds=30)
+    with pytest.raises(RetryExhaustedError):
+        exhausted.convert_to_delegated(now=NOW)
 
 
 def test_status_assignment_outside_domain_methods_is_impossible() -> None:

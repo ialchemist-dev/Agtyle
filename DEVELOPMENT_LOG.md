@@ -20,9 +20,9 @@ in this log's work packages establish the first baseline.
 - [x] WP-02 Persistence and migrations
 - [x] WP-03 Agent and capability registry
 - [x] WP-04 Cedar authorization
-- [ ] WP-05 Interaction, dispatch and Task Worker
-- [ ] WP-06 Reminder Action vertical slice
-- [ ] WP-07 Scheduler and Notification closure
+- [x] WP-05 Interaction, dispatch and Task Worker
+- [x] WP-06 Reminder Action vertical slice
+- [x] WP-07 Scheduler and Notification closure
 - [ ] WP-08 Inspection, observability and recovery
 - [ ] WP-09 Acceptance automation
 
@@ -208,3 +208,46 @@ Request data is written to `0600` temporary files removed in a `finally` block, 
 that path in its error text. `_strip_temp_paths` rewrites it to `<request>` so stored
 PolicyDecisions and API problem responses are stable and disclose nothing about the filesystem.
 *Affected requirement:* §15.1, §19.7.
+
+---
+
+## 2026-08-09 — WP-05 to WP-07: interaction, execution, reminders and notifications
+
+**D-024 — The error taxonomy gained one code: `AGT-AGENT-003 agent_runtime_timeout`.**
+§16.4 requires an `agent_runtime_transient` class whose example is "model timeout", but the
+§11.2 taxonomy has no code for it: `AGT-AGENT-001` is invalid output and `AGT-AGENT-002` is an
+unsupported assignment. Rather than mislabel a timeout as a capability failure, one code was
+added. No existing code changed meaning, so the taxonomy remains stable for consumers.
+*Affected requirement:* §11.2, §16.4.
+
+**D-025 — Interactive conversion of an already-claimed Task uses `running -> failed -> assigned`.**
+§18.4 requires the interactive deadline to "atomically leave the same Task in `assigned`" without
+creating a second Task. By then the interactive runner has already claimed the Task, so it is
+`running`. Adding a `running -> assigned` edge would weaken the §9.4 transition matrix, so
+`convert_to_delegated` instead fails the attempt with `AGT-AGENT-003` and reassigns it through the
+declared `failed -> assigned` retry edge. The Task id, Intent and receipt are unchanged; the
+abandoned AgentRun is marked `abandoned`; and the audit trail states plainly that one attempt was
+made and did not finish in budget.
+*Affected requirement:* §9.4, §18.4.
+
+**D-026 — A Cedar engine error requeues the Task rather than failing it.**
+§16.4 classifies `authorization_error` as "Yes, bounded" for retry. So a missing binary or a
+timeout stores a `PolicyDecision` with `decision=error`, leaves no Reminder and no ActionResult,
+and returns the Task to `assigned` within its attempt budget. This is visibly different from a
+policy `deny`, which is terminal. The integration test asserts both the stored decision and the
+absence of any capability invocation.
+*Affected requirement:* §15.3, §16.4.
+
+**D-027 — The due Notification is routed to the originating conversation.**
+A Reminder does not store an origin channel, so `ReminderService` reads
+`task.origin.conversation_id` from the source Task inside the same claim transaction. The due
+notification therefore reaches the same conversation that asked for it, and the Notification is
+linked to both the Reminder and the Task for the timeline.
+*Affected requirement:* §9.10, §14.4.
+
+**D-028 — `RecordingNotificationAdapter` deduplicates by delivery key.**
+§17.2 is explicit that exactly-once delivery cannot be promised for an arbitrary channel. Agtyle
+guarantees exactly-once Notification *creation* through the unique delivery key and at-least-once
+adapter invocation. The recording adapter closes the last gap locally by suppressing a repeated
+delivery key, which is what makes "exactly-once observed delivery" assertable in acceptance.
+*Affected requirement:* §17.2.
