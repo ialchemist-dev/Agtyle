@@ -15,6 +15,8 @@ from typing import Annotated, Any, Self
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from agtyle.domain.common import ConfigurationInvalidError as _ConfigurationInvalidError
+
 CEDAR_PINNED_VERSION = "4.12.0"
 """The only Cedar CLI version this implementation is verified against."""
 
@@ -36,6 +38,10 @@ class AgentRuntimeName(StrEnum):
 
 class ConfigurationError(RuntimeError):
     """Raised when configuration cannot satisfy the specification."""
+
+
+#: Re-exported so composition code raises the same typed error the rest of the system uses.
+ConfigurationInvalidError = _ConfigurationInvalidError
 
 
 class Settings(BaseSettings):

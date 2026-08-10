@@ -22,10 +22,31 @@ from agtyle.adapters.persistence.repositories import (
     SqlReminderRepository,
     SqlTaskRepository,
 )
+from agtyle.ports.repositories import (
+    ActionRepository,
+    AgentRunRepository,
+    ApprovalRepository,
+    EventRepository,
+    IntentRepository,
+    NotificationRepository,
+    ReminderRepository,
+    TaskRepository,
+    UnitOfWorkPort,
+)
 
 
 class SqliteUnitOfWork:
     """A single transaction. Reused instances are not supported; create one per operation."""
+
+    # Declared so the class structurally satisfies UnitOfWorkPort before `__aenter__` runs.
+    intents: IntentRepository
+    tasks: TaskRepository
+    agent_runs: AgentRunRepository
+    actions: ActionRepository
+    approvals: ApprovalRepository
+    reminders: ReminderRepository
+    notifications: NotificationRepository
+    events: EventRepository
 
     def __init__(self, engine: Engine, *, immediate: bool = True) -> None:
         self._engine = engine
@@ -98,7 +119,7 @@ class SqliteUnitOfWorkFactory:
     def __init__(self, engine: Engine) -> None:
         self._engine = engine
 
-    def __call__(self) -> SqliteUnitOfWork:
+    def __call__(self) -> UnitOfWorkPort:
         return SqliteUnitOfWork(self._engine)
 
     @property
