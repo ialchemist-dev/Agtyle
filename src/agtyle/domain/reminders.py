@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import zoneinfo
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -244,3 +245,58 @@ class Reminder(DomainModel):
             and self.scheduled_for_utc == other.scheduled_for_utc
             and self.timezone == other.timezone
         )
+
+
+UTC_INSTANT_PATTERN: Final = re.compile(
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?Z$"
+)
+
+
+def parse_utc_instant(raw: str) -> datetime:
+    """Parse the single accepted instant form: RFC 3339 UTC with a literal ``Z``.
+
+    Offsets such as ``-06:00`` are rejected on the wire so that the stored value and the
+    hashed payload have exactly one representation.
+    """
+    if not UTC_INSTANT_PATTERN.match(raw):
+        raise InvalidRequestError(
+            "scheduled_for_utc must be an RFC 3339 UTC instant ending in 'Z', "
+            "for example 2026-08-10T21:00:00Z"
+        )
+    return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+
+
+class ReminderCreatePayload(DomainModel):
+    """The protected payload of a ``reminder.create`` ActionRequest.
+
+    This model and ``contracts/schemas/v1/reminder-create.schema.json`` must accept and
+    reject exactly the same documents; a contract test proves it over every fixture.
+    """
+
+    title: Annotated[str, StringConstraints(min_length=1, max_length=MAX_TITLE_LENGTH)]
+    note: Annotated[str, StringConstraints(max_length=MAX_NOTE_LENGTH)] | None = None
+    scheduled_for_utc: str
+    timezone: str
+
+    @field_validator("title")
+    @classmethod
+    def _title_is_trimmed(cls, value: str) -> str:
+        if value != value.strip():
+            raise ValueError("title must be trimmed")
+        return value
+
+    @field_validator("scheduled_for_utc")
+    @classmethod
+    def _instant_is_utc_z(cls, value: str) -> str:
+        parse_utc_instant(value)
+        return value
+
+    @field_validator("timezone")
+    @classmethod
+    def _timezone_is_iana(cls, value: str) -> str:
+        validate_timezone(value)
+        return value
+
+    @property
+    def instant(self) -> datetime:
+        return parse_utc_instant(self.scheduled_for_utc)

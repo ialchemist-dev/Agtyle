@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agtyle.local/contracts/schemas/v1/action-request.schema.json",
+  "title": "ActionRequest proposal envelope",
+  "description": "What a Specialist Agent may propose. Identifiers, hashes, idempotency keys, task links and status are supplied by the kernel and must never appear here.",
+  "x-agtyle-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "capability", "schema_version", "resource_type", "resource_id", "payload"],
+  "properties": {
+    "kind": { "const": "action_request" },
+    "capability": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+    },
+    "schema_version": { "type": "integer", "const": 1 },
+    "resource_type": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "resource_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "payload": { "type": "object" }
+  }
+}

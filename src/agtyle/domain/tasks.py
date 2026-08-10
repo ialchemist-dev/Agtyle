@@ -151,7 +151,10 @@ class Task(DomainModel):
         )
 
     def wait_for_approval(self, *, now: datetime) -> Task:
-        return self._transition(TaskStatus.WAITING_APPROVAL, now=now)
+        """Park the Task for a human decision and release the Worker's lease."""
+        return self._transition(
+            TaskStatus.WAITING_APPROVAL, now=now, lease_owner=None, lease_expires_at=None
+        )
 
     def resume(self, *, lease_owner: str, now: datetime, lease_seconds: int) -> Task:
         moment = require_aware(now, field="now")

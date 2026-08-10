@@ -16,7 +16,7 @@ in this log's work packages establish the first baseline.
 ### Work package checklist
 
 - [x] WP-00 Repository foundation
-- [ ] WP-01 Contracts and domain state
+- [x] WP-01 Contracts and domain state
 - [ ] WP-02 Persistence and migrations
 - [ ] WP-03 Agent and capability registry
 - [ ] WP-04 Cedar authorization
@@ -61,3 +61,43 @@ integers, finite floats, null). Values outside that space are rejected rather th
 coerced. Contract tests in WP-01 prove order- and whitespace-independence and per-field
 sensitivity, as §9.6 requires.
 *Affected requirement:* §9.6.
+
+---
+
+## 2026-08-09 — WP-01 Contracts and domain state
+
+**D-006 — A distinct `ActionSchemaPort` was added for versioned Action payload validation.**
+The specification requires schema validation to be a fail-closed gate that runs before Cedar
+(§15.3 step 3) but does not name a port for it. Rather than let an application service read
+`contracts/` from disk, `agtyle.ports.schema_registry.ActionSchemaPort` declares the seam and
+`agtyle.adapters.validation.json_schema.JsonSchemaRegistry` implements it. This keeps filesystem
+access inside an adapter, as §11 requires.
+*Affected requirement:* §11, §14.1, §15.3.
+
+**D-007 — `timezone` uses a custom `iana-time-zone` JSON Schema format.**
+§14.1 requires JSON Schema and Pydantic to agree on every fixture. A pattern cannot express "this
+is a resolvable IANA zone", so the committed schema declares
+`"format": "iana-time-zone"` and the validator registers a checker backed by `zoneinfo`. The
+`reminder-create.unknown-timezone` fixture is therefore rejected by both validators for the same
+reason, instead of only by Pydantic.
+*Affected requirement:* §14.1.
+
+**D-008 — `scheduled_for_utc` accepts only RFC 3339 UTC with a literal `Z`.**
+§9.2 requires one storage representation. Allowing `-06:00` on the wire would mean two spellings
+of the same instant hash differently in a protected payload, so the schema pattern and
+`parse_utc_instant` both require `Z`. The local wall-clock time the user actually said is
+preserved separately in `timezone`, and `resolve_local_time` converts it.
+*Affected requirement:* §9.2, §9.6, §14.1.
+
+**D-009 — `wait_for_approval` releases the Worker lease.**
+A Task parked for a human decision may wait far longer than a lease. Holding the lease would make
+every such Task look like a crashed Worker to the recovery scan. The property-based state machine
+found this: the "only running tasks hold a lease" invariant failed. `resume` acquires a fresh
+lease when work continues.
+*Affected requirement:* §9.4, §16.1.
+
+**D-010 — Retry jitter is deterministic, not random.**
+§16.4 requires "bounded jitter injected through a policy object" and zero jitter in tests.
+`RetryPolicy` derives jitter from a SHA-256 of the seed identifier, so production still spreads
+retries across Tasks while the same input always produces the same schedule.
+*Affected requirement:* §16.4.

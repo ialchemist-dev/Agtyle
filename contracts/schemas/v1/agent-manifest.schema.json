@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agtyle.local/contracts/schemas/v1/agent-manifest.schema.json",
+  "title": "Agent manifest",
+  "description": "The machine-verifiable contract declaring what an Agent accepts, produces and may request.",
+  "x-agtyle-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "version", "display_name", "accepts", "produces"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "version": { "type": "integer", "minimum": 1 },
+    "display_name": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "accepts": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 100 },
+      "uniqueItems": true
+    },
+    "produces": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 100 },
+      "uniqueItems": true
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requested": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "context_scopes": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 100 },
+      "uniqueItems": true
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "external_publish": { "enum": ["forbidden", "approval_required", "allowed"] }
+      }
+    },
+    "escalation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ambiguity": { "enum": ["never", "when_outcome_changes", "always"] }
+      }
+    }
+  }
+}
