@@ -72,9 +72,14 @@ class TaskWorker:
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(stop.wait(), timeout=self.poll_interval_seconds)
 
+    #: Renewals happen at a third of the lease, so the first one lands strictly before half of
+    #: it has elapsed even if a renewal is briefly delayed. Renewing exactly at half would meet
+    #: the letter of the rule and lose the race on any hiccup.
+    HEARTBEAT_FRACTION = 3.0
+
     async def _heartbeat(self, claimed: ClaimedTask) -> None:
         """Renew the lease before half of it elapses, so a long Agent call keeps ownership."""
-        interval = max(self.lease_seconds / 2.0, 0.05)
+        interval = max(self.lease_seconds / self.HEARTBEAT_FRACTION, 0.05)
         task = claimed.task
         while True:
             await asyncio.sleep(interval)

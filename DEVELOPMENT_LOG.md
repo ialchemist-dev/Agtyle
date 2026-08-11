@@ -353,6 +353,8 @@ specification are untouched.
 
 ### Unmet requirements
 
+*(Superseded — see D-037 below. The claim in this section was wrong when written.)*
+
 None of the specification's MUST requirements are known to be unmet. Every deviation is recorded
 as a numbered decision above, and the two that change observable behaviour are D-019 (the Cedar
 CLI reports decisions by exit code and token rather than JSON) and D-024/D-025 (one added error
@@ -387,3 +389,84 @@ deferred to a later slice in §28.
 7. **The database is SQLite and the deployment is single-node.** Claim exclusion relies on
    `BEGIN IMMEDIATE` plus conditional updates on `row_version`. That is correct for processes
    sharing one filesystem; it is not a distributed lock.
+
+---
+
+## 2026-08-10 — D-037: startup MUSTs were wired into tooling, not into the roles
+
+**This corrects a false claim in the handoff section above.** That section stated no MUST was
+known to be unmet. Two were, and the §10.6 fix recorded as D-035 was incomplete. Recording the
+correction rather than editing the earlier claim, because a development log that quietly rewrites
+its own history is worth less than no log.
+
+### What was wrong
+
+Startup checks were implemented in `agtyle init`, `agtyle validate` and the readiness endpoint —
+the places that *report* — but not in the process roles that *work*.
+
+| Requirement | tooling / readiness | worker | scheduler | notifications | api |
+|---|---|---|---|---|---|
+| §10.6 registry snapshot gate | yes | yes | yes | yes | **no** |
+| §15.5 Cedar startup validation | yes | **no** | **no** | **no** | **no** |
+
+Reproduced before fixing: with a tampered Steward manifest the API started, correctly reported
+readiness `503`, and still accepted `POST /v1/interactions` with `202`, creating a real Task.
+With an invalid policy set, `agtyle worker --once` exited `0`.
+
+Neither could produce an unauthorized *effect* — the Action path fails closed at authorization
+time, which the P01–P10 matrix and `test_missing_cedar_fails_closed_without_reminder` already
+prove. So this was **failing late instead of early**, not an authorization bypass. It was still a
+plain violation of two MUSTs.
+
+### Root cause
+
+The gate was verified by driving the commands that had just been edited, rather than by
+enumerating the four process roles §8 defines. `agtyle api` never called `open_container`, so it
+sat outside a gate that looked finished.
+
+### The fix
+
+**D-037a — one gate, called from every role.** `bootstrap.check_startup` runs every startup check
+and *reports*; `require_startup_ready` is the enforcing wrapper. Readiness renders the same
+report, so readiness and startup cannot drift apart.
+
+**D-037b — the API gate lives in the FastAPI lifespan, not in the CLI.** That way it fires under
+uvicorn, gunicorn, or a bare `TestClient` — not only when someone runs `agtyle api`. The CLI also
+checks early, purely so an operator sees a typed error instead of a lifespan traceback.
+
+**D-037c — refusing to start, not merely reporting unready.** A local-first deployment has no
+load balancer to honour a `503`, so an unready process would keep serving. Verified: the API now
+never binds its port, and zero Tasks are created while the system is broken.
+
+**D-037d — operator tools deliberately stay outside the gate.** `validate`, `registry check`,
+`recover` and the inspection commands must work on a system too broken to start; that is what
+they are for. Tested explicitly.
+
+**D-037e — the omission is now structurally hard to repeat.**
+`tests/integration/test_startup_gate.py` is parametrized over the roles in §8's topology table
+crossed with each way the system can be unable to work, and includes a test that fails if a new
+CLI command is neither a gated role nor a declared operator tool. It also pins the original
+defect directly: "a broken system never accepts work."
+
+### Three more instances of the same shape, found by sweeping for it
+
+**D-038 — §7.1: policy validation now runs during bootstrap too.** The sentence requires it
+"during bootstrap, CI, and application startup". CI and startup were covered; `make bootstrap`
+now ends with `agtyle validate`, so a bad policy set is caught at the earliest possible moment.
+
+**D-039 — §16.2: the heartbeat renewed *at* half the lease, not before it.**
+`interval = lease / 2` meant the first renewal landed exactly on the boundary, so any scheduling
+hiccup lost the lease. Now `lease / 3`, which lands strictly before half has elapsed even when a
+renewal is briefly delayed.
+
+**D-040 — §8: cross-process database sharing is now proven with real processes.** The existing
+concurrency tests use threads, which share one process and one SQLite library instance.
+`tests/integration/test_multiprocess_sharing.py` spawns real subprocesses and proves two Worker
+processes claim one Task, two Scheduler processes create one due Notification, and a row written
+by one process is visible to the next.
+
+### Verified after the fix
+
+504 tests pass, coverage 91.8% core / 89.5% overall, `make verify` reports no unmet requirements,
+and the original reproduction now shows all four roles refusing to start, the API never binding
+its port, and zero Tasks created while broken.

@@ -21,7 +21,7 @@ from agtyle.application.interaction_service import (
     InteractionOutcome,
     InteractionResult,
 )
-from agtyle.bootstrap import Container, build_container
+from agtyle.bootstrap import Container, build_container, check_startup, require_startup_ready
 from agtyle.config import Settings
 from agtyle.domain.common import (
     AgtyleError,
@@ -117,12 +117,20 @@ def create_app(settings: Settings | None = None, *, container: Container | None 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         owned = container is None
-        app.state.container = container or build_container(settings)
+        built = container or build_container(settings)
+        app.state.container = built
         try:
+            # The gate lives here rather than in the CLI so it also fires under gunicorn, a
+            # test client, or any other ASGI host. A role that cannot work must not serve.
+            await require_startup_ready(built)
             yield
+        except AgtyleError:
+            if owned:
+                built.dispose()
+            raise
         finally:
             if owned:
-                app.state.container.dispose()
+                built.dispose()
 
     app = FastAPI(
         title="Agtyle",
@@ -145,54 +153,20 @@ def create_app(settings: Settings | None = None, *, container: Container | None 
 
     @app.get("/health/ready")
     async def ready(container: ContainerDep, response: Response) -> HealthResponse:
-        """Ready means the system could execute an Action right now, not that it is busy.
+        """Ready means this process could execute an Action right now.
 
-        A Worker that is idle, or not running at all, does not make the system unready.
+        It renders exactly the report the startup gate enforces, so readiness and startup can
+        never disagree. It deliberately does not require a Worker to be currently polling.
         """
-        checks: dict[str, Any] = {}
-        from agtyle.adapters.persistence import migrator
-
-        try:
-            checks["database_migrated"] = migrator.is_up_to_date(
-                container.settings, container.engine
-            )
-        except Exception as exc:
-            checks["database_migrated"] = False
-            checks["database_error"] = type(exc).__name__
-
+        report = await check_startup(container)
+        checks: dict[str, Any] = report.model_dump(mode="json")
         checks["registry_agents"] = [agent.id for agent in container.registry.agents]
         checks["capabilities"] = [item.name for item in container.registry.capabilities]
 
-        if checks["database_migrated"]:
-            consistency = await container.registry_sync.check()
-            checks["registry_snapshot_synced"] = consistency.synced
-            checks["registry_snapshot_consistent"] = consistency.consistent
-            if not consistency.consistent:
-                checks["registry_disagreements"] = [
-                    item.model_dump(mode="json") for item in consistency.disagreements
-                ]
-        else:
-            checks["registry_snapshot_synced"] = False
-            checks["registry_snapshot_consistent"] = False
-
-        report = await container.authorization.validate_policy_set()
-        checks["cedar_binary_present"] = container.authorization.configuration_problem() is None
-        checks["cedar_version"] = report.engine_version
-        checks["cedar_policies_valid"] = report.valid
-        if not report.valid:
-            checks["cedar_errors"] = report.errors
-
-        healthy = bool(
-            checks["database_migrated"]
-            and checks["cedar_binary_present"]
-            and checks["cedar_policies_valid"]
-            and checks["registry_agents"]
-            and checks["registry_snapshot_consistent"]
-        )
         response.status_code = (
-            status.HTTP_200_OK if healthy else status.HTTP_503_SERVICE_UNAVAILABLE
+            status.HTTP_200_OK if report.ready else status.HTTP_503_SERVICE_UNAVAILABLE
         )
-        return HealthResponse(status="ok" if healthy else "degraded", checks=checks)
+        return HealthResponse(status="ok" if report.ready else "degraded", checks=checks)
 
     # ---------------------------------------------------------------------------------
     # Interactions

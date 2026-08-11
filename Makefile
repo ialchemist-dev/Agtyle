@@ -16,6 +16,8 @@ help: ## Show available targets
 bootstrap: ## Install locked Python dependencies and the pinned Cedar CLI
 	$(UV) sync --locked --all-extras
 	$(PY) scripts/install_cedar.py
+	@# Policy validation runs during bootstrap, in CI, and at application startup.
+	$(RUN) agtyle validate
 
 init: ## Create data directories, run migrations, validate registry and policies
 	$(RUN) agtyle init

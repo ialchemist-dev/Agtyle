@@ -50,6 +50,32 @@ Read it in this order:
 If there is a PolicyDecision but no ActionResult, no effect occurred. That is the invariant the
 whole design protects.
 
+## Why a role refuses to start
+
+Any role that accepts or executes work — API, Task Worker, Scheduler, Notification Worker —
+runs one startup gate before it does anything. It refuses to start when:
+
+- the database is not migrated to head;
+- an enabled registry snapshot disagrees with the configured manifests (§10.6);
+- the Cedar binary is missing, the wrong version, or the policy set does not validate (§15.5).
+
+The failure is an `AGT-SYSTEM-001` document naming the problem. Readiness renders the same
+report, so `/health/ready` and startup can never disagree.
+
+Refusing to start, rather than only reporting `503`, is deliberate: a local-first deployment has
+no load balancer to honour an unready signal, so a process that merely reported itself unready
+would still be serving requests.
+
+Operator tooling deliberately stays outside the gate, because its whole purpose is to diagnose
+and repair a system too broken to start:
+
+```bash
+agtyle validate          # report every startup check without enforcing it
+agtyle registry check    # is the snapshot still in agreement?
+agtyle recover           # reclaim abandoned work
+agtyle task timeline ... # explain what happened
+```
+
 ## When Cedar is misconfigured
 
 Invalid Cedar configuration makes `/health/ready` return non-200 and prevents Workers from

@@ -17,11 +17,15 @@ from typing import Annotated, Any
 import typer
 
 from agtyle import __version__
-from agtyle.adapters.persistence import migrator
-from agtyle.bootstrap import Container, build_container, migrate
+from agtyle.bootstrap import (
+    Container,
+    build_container,
+    check_startup,
+    migrate,
+    require_startup_ready,
+)
 from agtyle.config import Settings, get_settings
 from agtyle.domain.common import AgtyleError, ConfigurationInvalidError
-from agtyle.domain.registry_snapshot import RegistryConsistency
 from agtyle.observability.logging import configure_logging
 from agtyle.workers.notification_worker import NotificationWorker
 from agtyle.workers.scheduler import Scheduler
@@ -70,20 +74,21 @@ def load_settings(data_dir: Path | None = None, database_url: str | None = None)
     return settings
 
 
-def open_container(settings: Settings | None = None, *, check_registry: bool = True) -> Container:
-    """Build the container and, for anything that will execute work, gate on the snapshot.
+def open_container(settings: Settings | None = None, *, gate: bool = True) -> Container:
+    """Build the container, gating any role that will accept or execute work.
 
-    A manifest edited without an explicit `agtyle registry sync` changes what an Agent may
-    propose. That must stop the process, not be discovered later in an audit.
+    Roles that do work run the full startup gate. Operator tools — `validate`,
+    `registry check`, `recover`, and the inspection commands — deliberately do not, because
+    their whole purpose is to diagnose and repair a system that is too broken to start.
     """
     try:
         container = build_container(settings or load_settings())
     except AgtyleError as error:
         fail(error)
         raise  # pragma: no cover - fail always exits
-    if check_registry and migrator.is_up_to_date(container.settings, container.engine):
+    if gate:
         try:
-            asyncio.run(container.registry_sync.require_consistent())
+            asyncio.run(require_startup_ready(container))
         except AgtyleError as error:
             container.dispose()
             fail(error)
@@ -117,7 +122,7 @@ def init() -> None:
     settings = load_settings()
     settings.ensure_directories()
     head = migrate(settings)
-    container = open_container(settings, check_registry=False)
+    container = open_container(settings, gate=False)
     try:
         sync = asyncio.run(container.registry_sync.sync())
         report = asyncio.run(container.authorization.validate_policy_set())
@@ -146,39 +151,25 @@ def init() -> None:
 
 @app.command()
 def validate() -> None:
-    """Validate configuration, registry, schemas, Cedar and the stored registry snapshot."""
+    """Report every startup check without enforcing it, so a broken system can be diagnosed."""
     settings = load_settings()
-    container = open_container(settings, check_registry=False)
+    container = open_container(settings, gate=False)
     try:
-        # Validation must work on a checkout that has never been initialized, so the snapshot
-        # comparison is only meaningful once the database exists at head.
-        migrated = migrator.is_up_to_date(settings, container.engine)
-        consistency = (
-            asyncio.run(container.registry_sync.check())
-            if migrated
-            else RegistryConsistency(synced=False)
+        # `require_database=False` so a checkout that has never run `agtyle init` can still
+        # validate its configuration, registry, schemas and Cedar policies.
+        report = asyncio.run(check_startup(container, require_database=False))
+        emit(
+            {
+                "status": "valid" if report.ready else "invalid",
+                "agents": [f"{agent.id}@{agent.version}" for agent in container.registry.agents],
+                "capabilities": [
+                    f"{item.name}@{item.version}" for item in container.registry.capabilities
+                ],
+                "schemas": container.schemas.schema_ids,
+                **report.model_dump(mode="json"),
+            }
         )
-        report = asyncio.run(container.authorization.validate_policy_set())
-        document = {
-            "status": "valid" if report.valid else "invalid",
-            "agents": [f"{agent.id}@{agent.version}" for agent in container.registry.agents],
-            "capabilities": [
-                f"{item.name}@{item.version}" for item in container.registry.capabilities
-            ],
-            "schemas": container.schemas.schema_ids,
-            "cedar_version": report.engine_version,
-            "cedar_valid": report.valid,
-            "policy_ids": report.policy_ids,
-            "errors": report.errors,
-            "database_migrated": migrated,
-            "registry_snapshot_synced": consistency.synced,
-            "registry_snapshot_consistent": consistency.consistent,
-            "registry_disagreements": [
-                item.model_dump(mode="json") for item in consistency.disagreements
-            ],
-        }
-        emit(document)
-        if not report.valid or not consistency.consistent:
+        if not report.ready:
             raise typer.Exit(EXIT_ERROR)
     finally:
         container.dispose()
@@ -195,6 +186,10 @@ def api(
     from agtyle.adapters.gateways.api import create_app
 
     settings = load_settings()
+    # The authoritative gate is in the app's lifespan, so it fires under any ASGI host. This
+    # early check exists only so `agtyle api` reports a typed error instead of a startup
+    # traceback from inside uvicorn.
+    open_container(settings).dispose()
     uvicorn.run(create_app(settings), host=host, port=port, log_level=settings.log_level.lower())
 
 
@@ -300,7 +295,7 @@ def notifications(
 @app.command()
 def recover() -> None:
     """Reclaim Tasks and Notifications abandoned by a crashed process."""
-    container = open_container()
+    container = open_container(gate=False)
     try:
         summary = asyncio.run(container.recovery_service.recover_expired_leases())
         emit(summary.model_dump(mode="json"))
@@ -316,7 +311,7 @@ def recover() -> None:
 @task_app.command("show")
 def task_show(task_id: str) -> None:
     """Print the current state of one Task."""
-    container = open_container()
+    container = open_container(gate=False)
     try:
         document = asyncio.run(_task_document(container, task_id))
         if document is None:
@@ -329,7 +324,7 @@ def task_show(task_id: str) -> None:
 @task_app.command("timeline")
 def task_timeline(task_id: str) -> None:
     """Print the full explanation of one Task, current state and history clearly separated."""
-    container = open_container()
+    container = open_container(gate=False)
     try:
         timeline = asyncio.run(container.timeline_service.for_task(task_id))
         if timeline is None:
@@ -343,7 +338,7 @@ def task_timeline(task_id: str) -> None:
 @reminder_app.command("show")
 def reminder_show(reminder_id: str) -> None:
     """Print one Reminder and the Notifications attached to it."""
-    container = open_container()
+    container = open_container(gate=False)
     try:
         document = asyncio.run(_reminder_document(container, reminder_id))
         if document is None:
@@ -356,7 +351,7 @@ def reminder_show(reminder_id: str) -> None:
 @registry_app.command("sync")
 def registry_sync() -> None:
     """Record the current Agent and Capability registry as the enabled snapshot."""
-    container = open_container(check_registry=False)
+    container = open_container(gate=False)
     try:
         emit(asyncio.run(container.registry_sync.sync()).model_dump(mode="json"))
     finally:
@@ -366,7 +361,7 @@ def registry_sync() -> None:
 @registry_app.command("check")
 def registry_check() -> None:
     """Report whether the stored snapshot still agrees with the configured registry."""
-    container = open_container(check_registry=False)
+    container = open_container(gate=False)
     try:
         consistency = asyncio.run(container.registry_sync.check())
         emit(consistency.model_dump(mode="json"))

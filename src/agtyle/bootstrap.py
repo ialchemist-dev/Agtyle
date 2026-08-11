@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import Field
 from sqlalchemy import Engine
 
 from agtyle.adapters.agent_runtimes.deterministic_executive import DeterministicExecutiveRuntime
@@ -48,6 +49,8 @@ from agtyle.config import (
     Settings,
     get_settings,
 )
+from agtyle.domain.common import DomainModel
+from agtyle.domain.registry_snapshot import RegistryConsistency
 from agtyle.observability.logging import configure_logging
 from agtyle.ports.agent_runtime import AgentRuntimePort
 from agtyle.ports.capability import CapabilityPort
@@ -281,3 +284,98 @@ def _guard_adapter_selection(
 def migrate(settings: Settings) -> str:
     """Bring the database to head. Shared by `agtyle init`, tests and the demo."""
     return migrator.upgrade_to_head(settings)
+
+
+# --------------------------------------------------------------------------------------
+# Startup gate
+# --------------------------------------------------------------------------------------
+
+
+class StartupReport(DomainModel):
+    """What a process role checked before it agreed to start.
+
+    Readiness renders this same report, so what an operator sees is exactly what the gate
+    enforces rather than a second, separately maintained opinion.
+    """
+
+    database_migrated: bool
+    registry_snapshot_synced: bool
+    registry_snapshot_consistent: bool
+    registry_disagreements: list[str] = Field(default_factory=list)
+    cedar_version: str | None = None
+    cedar_binary_present: bool = False
+    cedar_policies_valid: bool = False
+    cedar_policy_ids: list[str] = Field(default_factory=list)
+    problems: list[str] = Field(default_factory=list)
+
+    @property
+    def ready(self) -> bool:
+        return not self.problems
+
+
+async def check_startup(container: Container, *, require_database: bool = True) -> StartupReport:
+    """Run every startup check the specification binds to process start, and report.
+
+    This never raises: an operator tool needs to be able to ask "what is wrong?" on a system
+    that is too broken to start. ``require_startup_ready`` is the enforcing wrapper.
+    """
+    problems: list[str] = []
+
+    try:
+        migrated = migrator.is_up_to_date(container.settings, container.engine)
+    except Exception as exc:
+        migrated = False
+        problems.append(f"the database could not be inspected: {type(exc).__name__}")
+
+    if require_database and not migrated:
+        problems.append("the database is not migrated to head; run `agtyle init`")
+
+    # §10.6: an enabled snapshot that disagrees with the configured registry stops startup.
+    # An empty snapshot is not a disagreement; the database has simply never been synced.
+    consistency = RegistryConsistency(synced=False)
+    if migrated:
+        consistency = await container.registry_sync.check()
+        if not consistency.consistent:
+            problems.append(
+                "the registry snapshot disagrees with the configured registry: "
+                f"{consistency.describe()}. Run `agtyle registry sync` to record the new "
+                "version deliberately."
+            )
+
+    # §15.5: check the pinned version, parse and validate schema and policies, and run the
+    # deny-by-default self-test, before this process accepts or executes any work.
+    binary_problem = container.authorization.configuration_problem()
+    report = await container.authorization.validate_policy_set()
+    if not report.valid:
+        problems.append(
+            "the Cedar policy set is not usable: " + ("; ".join(report.errors) or "unknown error")
+        )
+
+    return StartupReport(
+        database_migrated=migrated,
+        registry_snapshot_synced=consistency.synced,
+        registry_snapshot_consistent=consistency.consistent,
+        registry_disagreements=[
+            f"{item.kind.value} for {item.subject}: {item.detail}"
+            for item in consistency.disagreements
+        ],
+        cedar_version=report.engine_version,
+        cedar_binary_present=binary_problem is None,
+        cedar_policies_valid=report.valid,
+        cedar_policy_ids=report.policy_ids,
+        problems=problems,
+    )
+
+
+async def require_startup_ready(
+    container: Container, *, require_database: bool = True
+) -> StartupReport:
+    """The gate itself. A role that cannot work correctly must not start at all.
+
+    Readiness alone is not enough protection: a local-first deployment has no load balancer to
+    honour a 503, so a process that reported itself unready would still be serving requests.
+    """
+    report = await check_startup(container, require_database=require_database)
+    if not report.ready:
+        raise ConfigurationInvalidError(" | ".join(report.problems))
+    return report
