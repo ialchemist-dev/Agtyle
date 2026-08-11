@@ -39,18 +39,33 @@ so it composes cleanly with `cron`, a supervisor, or a test.
 
 ## Creating a reminder
 
+The Executive Agent is deterministic in this baseline and recognizes exactly one phrasing:
+
+```text
+Remind me to <what> at <RFC 3339 timestamp>
+```
+
+The timestamp must be in the future, so generate it rather than pasting a fixed date:
+
 ```bash
+DUE=$(python -c "import datetime as d; print((d.datetime.now(d.UTC) + d.timedelta(minutes=2)).strftime('%Y-%m-%dT%H:%M:%SZ'))")
+
 curl -sS -X POST http://127.0.0.1:8000/v1/interactions \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: demo-interaction-001' \
-  -d '{
-        "user_id": "user_local",
-        "conversation_id": "conv_demo",
-        "channel": "api",
-        "input": "Remind me to submit the report at 2026-08-10T15:00:00-06:00",
-        "preferred_execution_mode": "delegated"
-      }'
+  -d "{
+        \"user_id\": \"user_local\",
+        \"conversation_id\": \"conv_demo\",
+        \"channel\": \"api\",
+        \"input\": \"Remind me to submit the report at $DUE\",
+        \"preferred_execution_mode\": \"delegated\"
+      }"
 ```
+
+A due time in the past is still accepted as an interaction — the Executive has no opinion about
+it — but the Steward's Action fails domain validation, the Task ends `failed` with
+`AGT-INPUT-001`, and you are told so through a `task_failed` notification. That asymmetry is
+deliberate: the interaction was well-formed, the Action was not.
 
 The response is `202 Accepted` with a Task receipt. The receipt is returned only after the
 Intent, Task and assignment transaction has committed, so the identifiers in it are already

@@ -51,17 +51,35 @@ anything was delivered twice.
 ## Try it
 
 ```bash
+agtyle init                 # once: migrate, sync the registry, validate policies
 agtyle api --port 8000 &
 agtyle worker &
+agtyle scheduler &
+agtyle notifications &
+
+# The due time must be in the future, so generate it rather than pasting a fixed date.
+DUE=$(python -c "import datetime as d; print((d.datetime.now(d.UTC) + d.timedelta(minutes=2)).strftime('%Y-%m-%dT%H:%M:%SZ'))")
 
 curl -sS -X POST http://127.0.0.1:8000/v1/interactions \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: demo-interaction-001' \
-  -d '{"user_id":"user_local","conversation_id":"conv_demo","channel":"api",
-       "input":"Remind me to submit the report at 2026-08-10T15:00:00-06:00"}'
+  -d "{\"user_id\":\"user_local\",\"conversation_id\":\"conv_demo\",\"channel\":\"api\",
+       \"input\":\"Remind me to submit the report at $DUE\"}"
 
 agtyle task timeline <task_id_from_the_response>
 ```
+
+Two minutes later the Notification Worker prints `Reminder: submit the report`.
+
+**The Executive Agent is deterministic in this baseline**, so it recognizes exactly one phrasing:
+
+```text
+Remind me to <what> at <RFC 3339 timestamp>
+```
+
+Anything else — "tomorrow", "every Monday", a due time in the past — is answered with a
+clarification or fails the Task with a typed error rather than being guessed at. Swapping in a
+model-backed runtime is an adapter change behind `AgentRuntimePort`; the kernel does not move.
 
 ## Documentation
 
