@@ -1,0 +1,18 @@
+# The Executive Agent routes interactions. It never requests an external capability.
+id: executive
+version: 1
+display_name: Executive Agent
+accepts:
+  - interaction
+produces:
+  - task_proposal
+  - direct_response
+capabilities:
+  requested: []
+context_scopes:
+  - timezone
+  - conversation_origin
+authority:
+  external_publish: forbidden
+escalation:
+  ambiguity: always

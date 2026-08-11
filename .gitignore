@@ -5,6 +5,19 @@
 *.pem
 *.key
 
+# Agtyle runtime data
+.agtyle/
+.tools/
+artifacts/verification/*
+!artifacts/verification/.gitkeep
+
+# Databases
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
 # Dependencies
 node_modules/
 .venv/
@@ -16,6 +29,14 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
 
 # Logs
 *.log

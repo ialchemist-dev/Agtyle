@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agtyle.local/contracts/schemas/v1/verification-report.schema.json",
+  "title": "Agtyle verification report",
+  "description": "The machine-readable record of one verification run. The Markdown report is a renderer of this document, never a separate source of truth.",
+  "x-agtyle-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "git_commit",
+    "git_dirty",
+    "os",
+    "architecture",
+    "python_version",
+    "cedar_version",
+    "migration_head",
+    "commands",
+    "tests",
+    "policy_cases",
+    "restart_duplicate_check",
+    "unmet_requirements"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "git_commit": { "type": "string", "minLength": 7 },
+    "git_dirty": { "type": "boolean" },
+    "os": { "type": "string" },
+    "architecture": { "type": "string" },
+    "python_version": { "type": "string" },
+    "cedar_version": { "type": ["string", "null"] },
+    "migration_head": { "type": ["string", "null"] },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "command", "exit_code", "duration_ms"],
+        "properties": {
+          "name": { "type": "string" },
+          "command": { "type": "string" },
+          "exit_code": { "type": "integer" },
+          "duration_ms": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["suite", "passed", "failed", "skipped"],
+        "properties": {
+          "suite": { "type": "string" },
+          "passed": { "type": "integer", "minimum": 0 },
+          "failed": { "type": "integer", "minimum": 0 },
+          "skipped": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "policy_cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "expected", "actual"],
+        "properties": {
+          "id": { "type": "string" },
+          "expected": { "type": "string" },
+          "actual": { "type": "string" }
+        }
+      }
+    },
+    "e2e": {
+      "type": ["object", "null"],
+      "additionalProperties": true
+    },
+    "performance": {
+      "type": ["object", "null"],
+      "additionalProperties": true
+    },
+    "restart_duplicate_check": { "enum": ["passed", "failed", "not_run"] },
+    "unmet_requirements": { "type": "array", "items": { "type": "string" } }
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agtyle.local/contracts/schemas/v1/reminder-create.schema.json",
+  "title": "reminder.create action payload",
+  "description": "The protected payload of a reminder.create ActionRequest. Recurrence is deliberately unsupported in the baseline and is rejected rather than silently ignored.",
+  "x-agtyle-capability": "reminder.create",
+  "x-agtyle-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "title",
+    "scheduled_for_utc",
+    "timezone"
+  ],
+  "properties": {
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^(?!\\s)(.|\\n)*(?<!\\s)$",
+      "description": "Trimmed, non-empty reminder title."
+    },
+    "note": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 4000,
+      "description": "Optional free-form note."
+    },
+    "scheduled_for_utc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$",
+      "description": "RFC 3339 instant in UTC with a literal Z designator."
+    },
+    "timezone": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[A-Za-z][A-Za-z0-9+_-]*(/[A-Za-z0-9+_-]+)*$",
+      "description": "IANA timezone identifier used to interpret the reminder locally.",
+      "format": "iana-time-zone"
+    }
+  },
+  "not": {
+    "anyOf": [
+      {
+        "required": [
+          "recurrence"
+        ]
+      },
+      {
+        "required": [
+          "rrule"
+        ]
+      },
+      {
+        "required": [
+          "repeat"
+        ]
+      },
+      {
+        "required": [
+          "recurring"
+        ]
+      },
+      {
+        "required": [
+          "frequency"
+        ]
+      }
+    ]
+  }
+}
