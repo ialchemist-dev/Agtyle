@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agtyle-voice-email-mvp"
+version = "0.1.0"
+description = "Mac-first voice executive that asynchronously operates Gmail through OpenAI Realtime."
+requires-python = ">=3.11"
+dependencies = [
+  "python-dotenv>=1.0,<2",
+  "websockets>=13,<16",
+  "sounddevice>=0.5,<1",
+  "numpy>=2.0,<3",
+  "pynput>=1.7,<2",
+  "google-api-python-client>=2.170,<3",
+  "google-auth>=2.40,<3",
+  "google-auth-oauthlib>=1.2,<2",
+  "google-auth-httplib2>=0.2,<1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+
+[project.scripts]
+agtyle = "agtyle.app:main"
+
+[tool.setuptools.packages.find]
+include = ["agtyle*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
